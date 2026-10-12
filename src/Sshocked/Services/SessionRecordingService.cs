@@ -5,7 +5,6 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-/// <summary>Phase-one recorder: output pipes and timing; stdin stays attached to the user's terminal.</summary>
 public sealed class SessionRecordingService(IConfigRepository configRepository, IExternalProcessRunner processRunner,
     SessionRepository repository, ILogger<SessionRecordingService> logger) : ISessionRecordingService
 {
@@ -97,9 +96,9 @@ public sealed class SessionRecordingService(IConfigRepository configRepository, 
         }
     }
 
-    private static async Task Pump(StreamReader input, TextWriter output, SessionRepository.SessionWriter recording)
+    private static async Task Pump(StreamReader input, TextWriter output, SessionWriter recording)
     {
-        var buffer = new char[4096];
+        var buffer = new char[SessionRecordingFiles.BufferSize];
         var pendingSurrogate = string.Empty;
         while (await input.ReadAsync(buffer.AsMemory()) is var count && count > 0)
         {
@@ -125,7 +124,7 @@ public sealed class SessionRecordingService(IConfigRepository configRepository, 
     private static int ConsoleDimension(bool width)
     {
         try { return width ? System.Console.WindowWidth : System.Console.WindowHeight; }
-        catch (IOException) { return width ? 80 : 24; }
-        catch (PlatformNotSupportedException) { return width ? 80 : 24; }
+        catch (IOException) { return width ? SessionRecordingFiles.DefaultWidth : SessionRecordingFiles.DefaultHeight; }
+        catch (PlatformNotSupportedException) { return width ? SessionRecordingFiles.DefaultWidth : SessionRecordingFiles.DefaultHeight; }
     }
 }

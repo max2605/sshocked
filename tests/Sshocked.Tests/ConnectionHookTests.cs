@@ -17,14 +17,14 @@ public sealed class ConnectionHookTests
     public void GlobalTagsAreCaseInsensitiveAndExclusionsTakePrecedence()
     {
         var hooks = new GlobalHooks { IncludeTags = ["prod"] };
-        Assert.True(HookExecutorService.MatchesTags(hooks, Host()));
+        Assert.True(HookDefinition.MatchesTags(hooks, Host()));
         hooks.ExcludeTags = ["WEB"];
-        Assert.False(HookExecutorService.MatchesTags(hooks, Host()));
+        Assert.False(HookDefinition.MatchesTags(hooks, Host()));
         hooks.ExcludeTags.Clear();
         hooks.IncludeTags = ["database"];
-        Assert.False(HookExecutorService.MatchesTags(hooks, Host()));
+        Assert.False(HookDefinition.MatchesTags(hooks, Host()));
         hooks.IncludeTags.Clear();
-        Assert.True(HookExecutorService.MatchesTags(hooks, Host()));
+        Assert.True(HookDefinition.MatchesTags(hooks, Host()));
     }
 
     [Fact]
@@ -35,12 +35,12 @@ public sealed class ConnectionHookTests
         var host = Host();
         host.Hooks = new() { PreConnect = specific, PostConnect = specific, PreDisconnect = specific, PostDisconnect = specific };
         var hooks = new GlobalHooks { PreConnect = global, PostConnect = global, PreDisconnect = global, PostDisconnect = global };
-        Assert.Equal(new[] { global, specific }, HookExecutorService.GetOrderedHooks(HookPhase.PreConnect, host, hooks));
-        Assert.Equal(new[] { global, specific }, HookExecutorService.GetOrderedHooks(HookPhase.PreDisconnect, host, hooks));
-        Assert.Equal(new[] { specific, global }, HookExecutorService.GetOrderedHooks(HookPhase.PostConnect, host, hooks));
-        Assert.Equal(new[] { specific, global }, HookExecutorService.GetOrderedHooks(HookPhase.PostDisconnect, host, hooks));
+        Assert.Equal(new[] { global, specific }, HookDefinition.GetOrderedHooks(HookPhase.PreConnect, host, hooks));
+        Assert.Equal(new[] { global, specific }, HookDefinition.GetOrderedHooks(HookPhase.PreDisconnect, host, hooks));
+        Assert.Equal(new[] { specific, global }, HookDefinition.GetOrderedHooks(HookPhase.PostConnect, host, hooks));
+        Assert.Equal(new[] { specific, global }, HookDefinition.GetOrderedHooks(HookPhase.PostDisconnect, host, hooks));
         specific.Enabled = false;
-        Assert.Same(global, Assert.Single(HookExecutorService.GetOrderedHooks(HookPhase.PreConnect, host, hooks)));
+        Assert.Same(global, Assert.Single(HookDefinition.GetOrderedHooks(HookPhase.PreConnect, host, hooks)));
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class ConnectionHookTests
         var hook = Script("test");
         hook.Environment = new() { ["CUSTOM"] = "hello", ["SSHOCKED_HOST_ALIAS"] = "override" };
         var timestamp = DateTimeOffset.Parse("2026-10-12T10:00:00Z");
-        var environment = HookExecutorService.BuildEnvironment(host, HookPhase.PostDisconnect,
+        var environment = HookDefinition.BuildEnvironment(host, HookPhase.PostDisconnect,
             new HookContext { GroupName = "Production", ConnectionTimestamp = timestamp, ConfigDirectory = "config", ExitCode = 7, DurationSeconds = 12.5 }, hook);
         Assert.Equal("post-disconnect", environment["SSHOCKED_HOOK_TYPE"]);
         Assert.Equal(host.Alias, environment["SSHOCKED_HOST_ALIAS"]);
@@ -176,8 +176,8 @@ public sealed class ConnectionHookTests
         {
             File.WriteAllText(path, "Write-Output test");
             var hook = new HookScript { Mode = HookExecutionMode.LocalScript, ScriptPath = path, Arguments = "-Message '${SSHOCKED_HOST_ALIAS}'" };
-            var environment = HookExecutorService.BuildEnvironment(Host(), HookPhase.PreConnect, new());
-            var info = HookExecutorService.BuildLocalStartInfo(hook, environment, out var temporary);
+            var environment = HookDefinition.BuildEnvironment(Host(), HookPhase.PreConnect, new());
+            var info = HookLocalProcess.BuildLocalStartInfo(hook, environment, out var temporary);
             Assert.Null(temporary);
             Assert.Equal("web with spaces", info.ArgumentList[^1]);
             Assert.Equal("-Message", info.ArgumentList[^2]);
@@ -215,7 +215,7 @@ public sealed class ConnectionHookTests
     [InlineData(HookPhase.PreConnect)]
     [InlineData(HookPhase.PostDisconnect)]
     public void RemoteCommandsAreRejectedForLocalOnlyPhases(HookPhase phase) => Assert.Throws<ArgumentException>(() =>
-        HookExecutorService.Validate(new HookScript { Mode = HookExecutionMode.RemoteCommand, Command = "true" }, phase));
+        HookDefinition.Validate(new HookScript { Mode = HookExecutionMode.RemoteCommand, Command = "true" }, phase));
 
     [Theory]
     [InlineData("bad-name")]
@@ -225,7 +225,7 @@ public sealed class ConnectionHookTests
     {
         var hook = Script("test");
         hook.Environment[name] = "value";
-        Assert.Throws<ArgumentException>(() => HookExecutorService.Validate(hook, HookPhase.PreConnect));
+        Assert.Throws<ArgumentException>(() => HookDefinition.Validate(hook, HookPhase.PreConnect));
     }
 
     [Fact]

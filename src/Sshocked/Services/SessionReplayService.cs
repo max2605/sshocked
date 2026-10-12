@@ -5,10 +5,15 @@ namespace Sshocked.Services;
 
 public static class SessionReplayService
 {
+    private const double MinimumSpeed = 0.1;
+    private const double MaximumSpeed = 16;
+    private const double SeekSeconds = 10;
+    private const int PollMilliseconds = 25;
+
     public static async Task Replay(IEnumerable<SessionEvent> events, double speed = 1, TextWriter? output = null,
         bool interactive = false, CancellationToken cancellationToken = default)
     {
-        if (!double.IsFinite(speed) || speed is < 0.1 or > 16) throw new ArgumentException("Replay speed must be between 0.1 and 16.");
+        if (!double.IsFinite(speed) || speed is < MinimumSpeed or > MaximumSpeed) throw new ArgumentException("Replay speed must be between 0.1 and 16.");
         output ??= System.Console.Out;
         if (!interactive)
         {
@@ -52,18 +57,18 @@ public static class SessionReplayService
                 {
                     case ConsoleKey.Q: return;
                     case ConsoleKey.Spacebar: paused = !paused; break;
-                    case ConsoleKey.UpArrow: speed = Math.Min(speed * 2, 16); break;
-                    case ConsoleKey.DownArrow: speed = Math.Max(speed / 2, 0.1); break;
-                    case ConsoleKey.RightArrow: cursor += 10; break;
+                    case ConsoleKey.UpArrow: speed = Math.Min(speed * 2, MaximumSpeed); break;
+                    case ConsoleKey.DownArrow: speed = Math.Max(speed / 2, MinimumSpeed); break;
+                    case ConsoleKey.RightArrow: cursor += SeekSeconds; break;
                     case ConsoleKey.LeftArrow:
-                        cursor = Math.Max(cursor - 10, 0); index = 0;
+                        cursor = Math.Max(cursor - SeekSeconds, 0); index = 0;
                         System.Console.Clear(); break;
                 }
             }
             while (index < timeline.Count && timeline[index].Time <= cursor)
                 await output.WriteAsync(timeline[index++].Data);
             await output.FlushAsync();
-            if (index < timeline.Count) await Task.Delay(25, cancellationToken);
+            if (index < timeline.Count) await Task.Delay(PollMilliseconds, cancellationToken);
         }
     }
 }

@@ -26,14 +26,14 @@ public static class HookConfigurationUi
     {
         while (true)
         {
-            var choices = Enum.GetValues<HookPhase>().Select(phase => new HookChoice(phase, Describe(Get(hooks, phase)))).ToList();
+            var choices = Enum.GetValues<HookPhase>().Select(phase => new HookChoice(phase, Describe(HookDefinition.SelectHook(hooks, phase)))).ToList();
             choices.Add(new(null, "Back"));
             var choice = AnsiConsole.Prompt(new SelectionPrompt<HookChoice>().Title("[green]Connection hooks[/]")
-                .UseConverter(item => item.Phase is { } phase ? $"{HookExecutorService.PhaseName(phase)}: {Markup.Escape(item.Description)}" : item.Description)
+                .UseConverter(item => item.Phase is { } phase ? $"{HookDefinition.PhaseName(phase)}: {Markup.Escape(item.Description)}" : item.Description)
                 .AddChoices(choices));
             if (choice.Phase is not { } selectedPhase) return;
-            var current = Get(hooks, selectedPhase);
-            var action = AnsiConsole.Prompt(new SelectionPrompt<string>().Title($"[green]{HookExecutorService.PhaseName(selectedPhase)}[/]")
+            var current = HookDefinition.SelectHook(hooks, selectedPhase);
+            var action = AnsiConsole.Prompt(new SelectionPrompt<string>().Title($"[green]{HookDefinition.PhaseName(selectedPhase)}[/]")
                 .AddChoices("Configure", "Remove", "Cancel"));
             if (action == "Remove") Set(hooks, selectedPhase, null);
             else if (action == "Configure") Set(hooks, selectedPhase, ConfigureScript(selectedPhase, current));
@@ -84,14 +84,14 @@ public static class HookConfigurationUi
         hook.ContinueOnError = AnsiConsole.Confirm("Continue the connection when this hook fails?", current?.ContinueOnError ?? false);
         if (hook.Mode == HookExecutionMode.RemoteCommand)
         {
-            hook.TimeoutSeconds = current?.TimeoutSeconds ?? 30;
+            hook.TimeoutSeconds = current?.TimeoutSeconds ?? HookConstants.DefaultTimeoutSeconds;
             AnsiConsole.MarkupLine("[yellow]Remote hooks run in the session shell. Per-hook timeout is supported for local hooks only.[/]");
             AnsiConsole.MarkupLine("[grey]Remote cleanup runs after the interactive shell exits; disconnecting the network can prevent it.[/]");
             if (!hook.Blocking) AnsiConsole.MarkupLine("[yellow]A background remote hook cannot change the session's directory or environment.[/]");
         }
         else
             hook.TimeoutSeconds = AnsiConsole.Prompt(new TextPrompt<int>("[green]Timeout in seconds[/]:")
-                .DefaultValue(current?.TimeoutSeconds ?? 30).Validate(value => value is >= 1 and <= 86400
+                .DefaultValue(current?.TimeoutSeconds ?? HookConstants.DefaultTimeoutSeconds).Validate(value => value is >= 1 and <= HookConstants.MaximumTimeoutSeconds
                     ? ValidationResult.Success() : ValidationResult.Error("[red]Use 1 to 86400 seconds.[/]")));
         if (!hook.Blocking) AnsiConsole.MarkupLine("[yellow]Background failures are logged; they cannot abort an already started connection.[/]");
         hook.OutputMode = AnsiConsole.Prompt(new SelectionPrompt<HookOutputMode>().Title("[green]Hook output[/]")
@@ -99,7 +99,7 @@ public static class HookConfigurationUi
         if (hook.Mode == HookExecutionMode.RemoteCommand && hook.OutputMode is HookOutputMode.Log or HookOutputMode.Both)
             AnsiConsole.MarkupLine("[yellow]Remote output appears in the SSH terminal; only the scheduling event is written to the local audit log.[/]");
         if (AnsiConsole.Confirm("Configure custom environment variables?", false)) ConfigureEnvironment(hook.Environment);
-        HookExecutorService.Validate(hook, phase);
+        HookDefinition.Validate(hook, phase);
         return hook;
     }
 
@@ -118,7 +118,7 @@ public static class HookConfigurationUi
                 continue;
             }
             var name = AnsiConsole.Prompt(new TextPrompt<string>("[green]Variable name[/]:").Validate(value =>
-                Regex.IsMatch(value, @"^[A-Za-z_][A-Za-z0-9_]*$") && !value.StartsWith("SSHOCKED_", StringComparison.Ordinal)
+                Regex.IsMatch(value, HookConstants.EnvironmentNamePattern) && !value.StartsWith(HookConstants.EnvironmentPrefix, StringComparison.Ordinal)
                     ? ValidationResult.Success() : ValidationResult.Error("[red]Use letters, digits, and underscores. SSHOCKED_ is reserved.[/]")));
             var value = AnsiConsole.Prompt(new TextPrompt<string>("[green]Value[/]:").AllowEmpty());
             environment[name] = value;
@@ -138,13 +138,6 @@ public static class HookConfigurationUi
     private static string Describe(HookScript? hook) => hook is null ? "not configured"
         : $"{hook.Mode} ({(hook.Enabled ? "enabled" : "disabled")})";
 
-    private static HookScript? Get(ConnectionHooks hooks, HookPhase phase) => phase switch
-    {
-        HookPhase.PreConnect => hooks.PreConnect, HookPhase.PostConnect => hooks.PostConnect,
-        HookPhase.PreDisconnect => hooks.PreDisconnect, HookPhase.PostDisconnect => hooks.PostDisconnect,
-        _ => null
-    };
-
     private static void Set(ConnectionHooks hooks, HookPhase phase, HookScript? script)
     {
         switch (phase)
@@ -155,6 +148,4 @@ public static class HookConfigurationUi
             case HookPhase.PostDisconnect: hooks.PostDisconnect = script; break;
         }
     }
-
-    private sealed record HookChoice(HookPhase? Phase, string Description);
 }

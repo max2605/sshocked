@@ -5,37 +5,30 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class SessionRepository
+public sealed class SessionRepository(string? directoryPath = null)
 {
     private readonly object gate = new();
     private readonly HashSet<string> active = [];
-    public string DirectoryPath { get; }
-
-    public SessionRepository() : this(DefaultDirectory()) { }
-
-    public SessionRepository(string directoryPath)
-    {
-        DirectoryPath = Path.GetFullPath(directoryPath);
-        CreatePrivateDirectory(DirectoryPath);
-    }
-
-    private static string DefaultDirectory() => Path.Combine(ConfigPaths.DirectoryPath, "sessions");
+    public string DirectoryPath { get; } = SessionRecordingFiles.InitializeDirectory(directoryPath);
 
     // Child terminal sessions use separate repository instances and processes. Keep
     // metadata snapshots and synchronous mutations consistent across those owners.
     private CrossProcessFileLock LockStore() => CrossProcessFileLock.Acquire(Path.Combine(DirectoryPath, ".repository"));
 
-    public SessionWriter Create(ServerHost host, bool captureTiming = true, int width = 80, int height = 24)
+    public SessionWriter Create(ServerHost host, bool captureTiming = true, int width = SessionRecordingFiles.DefaultWidth, int height = SessionRecordingFiles.DefaultHeight)
     {
         using var storeLock = LockStore();
         var metadata = new SessionMetadata
         {
-            HostId = host.Id, HostAlias = host.Alias, HostName = host.HostName, User = host.User
+            HostId = host.Id,
+            HostAlias = host.Alias,
+            HostName = host.HostName,
+            User = host.User
         };
         var dateDirectory = Path.Combine(DirectoryPath, metadata.StartedAt.ToString("yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture));
-        CreatePrivateDirectory(dateDirectory);
+        SessionRecordingFiles.CreatePrivateDirectory(dateDirectory);
         var alias = string.Concat(host.Alias.Take(60).Select(character => char.IsLetterOrDigit(character) || character is '-' or '_' ? character : '_'));
-        var filename = $"{metadata.StartedAt:yyyyMMddTHHmmssfffZ}_{alias}_{metadata.Id[..8]}.cast";
+        var filename = $"{metadata.StartedAt:yyyyMMddTHHmmssfffZ}_{alias}_{metadata.Id[..8]}{SessionRecordingFiles.CastExtension}";
         metadata.RelativeFilePath = Path.GetRelativePath(DirectoryPath, Path.Combine(dateDirectory, filename));
         lock (gate) active.Add(metadata.Id);
         SessionWriter? createdWriter = null;
@@ -54,17 +47,17 @@ public sealed class SessionRepository
         using var storeLock = LockStore();
         var sessions = new List<SessionMetadata>();
         var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
-        foreach (var path in Directory.EnumerateFiles(DirectoryPath, "*.json", options))
+        foreach (var path in Directory.EnumerateFiles(DirectoryPath, "*" + SessionRecordingFiles.MetadataExtension, options))
         {
             try
             {
-                if (new FileInfo(path).Length > 1024 * 1024) continue;
+                if (new FileInfo(path).Length > SessionRecordingFiles.BytesPerMebibyte) continue;
                 var metadata = JsonSerializer.Deserialize(File.ReadAllText(path), SessionRecordingJsonContext.Default.SessionMetadata);
                 if (metadata is null || !Guid.TryParse(metadata.Id, out _) || string.IsNullOrWhiteSpace(metadata.RelativeFilePath)) continue;
                 if (metadata.HostId is null || metadata.HostAlias is null || metadata.HostName is null || metadata.User is null ||
                     metadata.RecordingType is null || !double.IsFinite(metadata.DurationSeconds) || metadata.DurationSeconds < 0) continue;
                 var recordingPath = ResolvePath(metadata.RelativeFilePath);
-                if (!File.Exists(recordingPath) || Path.GetFullPath(path) != Path.ChangeExtension(recordingPath.EndsWith(".gz", StringComparison.Ordinal) ? recordingPath[..^3] : recordingPath, ".json")) continue;
+                if (!File.Exists(recordingPath) || Path.GetFullPath(path) != Path.ChangeExtension(recordingPath.EndsWith(SessionRecordingFiles.CompressionExtension, StringComparison.Ordinal) ? recordingPath[..^SessionRecordingFiles.CompressionExtension.Length] : recordingPath, SessionRecordingFiles.MetadataExtension)) continue;
                 if (server is not null && !metadata.HostId.Equals(server, StringComparison.OrdinalIgnoreCase) && !metadata.HostAlias.Equals(server, StringComparison.OrdinalIgnoreCase)) continue;
                 if (since is not null && metadata.StartedAt < since) continue;
                 metadata.FileSize = new FileInfo(recordingPath).Length;
@@ -82,7 +75,8 @@ public sealed class SessionRepository
         var matches = List(int.MaxValue).Where(session => session.Id.StartsWith(id, StringComparison.OrdinalIgnoreCase)).ToList();
         return matches.Count switch
         {
-            1 => matches[0], 0 => throw new FileNotFoundException($"Session '{id}' was not found."),
+            1 => matches[0],
+            0 => throw new FileNotFoundException($"Session '{id}' was not found."),
             _ => throw new ArgumentException($"Session prefix '{id}' matches more than one recording.")
         };
     }
@@ -94,7 +88,7 @@ public sealed class SessionRepository
         using var reader = new StreamReader(content ?? (Stream)file, Encoding.UTF8);
         var header = reader.ReadLine() ?? throw new InvalidDataException("The recording header is missing.");
         using (var document = JsonDocument.Parse(header))
-            if (!document.RootElement.TryGetProperty("version", out var version) || version.GetInt32() != 2)
+            if (!document.RootElement.TryGetProperty(SessionRecordingFiles.HeaderVersion, out var version) || version.GetInt32() != SessionRecordingFiles.CastVersion)
                 throw new InvalidDataException("Only asciinema cast version 2 is supported.");
         var previous = 0d;
         while (reader.ReadLine() is { } line)
@@ -102,7 +96,7 @@ public sealed class SessionRepository
             if (string.IsNullOrWhiteSpace(line)) continue;
             using var document = JsonDocument.Parse(line);
             var entry = document.RootElement;
-            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() != 3 || entry[1].GetString() != "o")
+            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() != 3 || entry[1].GetString() != SessionRecordingFiles.OutputEvent)
                 throw new InvalidDataException("The recording contains an unsupported event.");
             var timestamp = entry[0].GetDouble();
             if (!double.IsFinite(timestamp) || timestamp < previous)
@@ -112,13 +106,13 @@ public sealed class SessionRepository
         }
     }
 
-    public string Export(string id, string outputPath, string format = "cast")
+    public string Export(string id, string outputPath, string format = SessionRecordingFiles.CastFormat)
     {
         var metadata = Find(id);
-        if (format is not ("cast" or "text")) throw new ArgumentException("Export format must be cast or text.");
+        if (format is not (SessionRecordingFiles.CastFormat or SessionRecordingFiles.TextFormat)) throw new ArgumentException("Export format must be cast or text.");
         var destination = Path.GetFullPath(outputPath);
-        using var output = CreatePrivateFile(destination);
-        if (format == "text")
+        using var output = SessionRecordingFiles.CreatePrivateFile(destination);
+        if (format == SessionRecordingFiles.TextFormat)
         {
             using var writer = new StreamWriter(output, new UTF8Encoding(false), leaveOpen: true);
             foreach (var entry in ReadEvents(metadata)) writer.Write(entry.Data);
@@ -169,12 +163,12 @@ public sealed class SessionRepository
         if (settings.RetentionDays is < 0 or > 365000) throw new ArgumentException("Session retention days must be between 0 and 365000.");
         if (settings.RetentionDays > 0) DeleteOlderThan(DateTimeOffset.UtcNow.AddDays(-settings.RetentionDays), completedOnly: true);
         if (settings.MaxTotalSizeMb is not { } megabytes) return;
-        if (megabytes < 1 || megabytes > long.MaxValue / (1024 * 1024)) throw new ArgumentException("The recording size limit must be positive.");
+        if (megabytes < 1 || megabytes > long.MaxValue / SessionRecordingFiles.BytesPerMebibyte) throw new ArgumentException("The recording size limit must be positive.");
         // An incomplete recording may belong to another sshocked process, whose active
         // set is not visible here. Automatic cleanup must preserve all incomplete casts.
         var sessions = List(int.MaxValue).Where(session => session.EndedAt is not null).OrderBy(session => session.StartedAt).ToList();
         var total = sessions.Sum(session => new FileInfo(ResolvePath(session.RelativeFilePath)).Length);
-        var limit = megabytes * 1024 * 1024;
+        var limit = megabytes * SessionRecordingFiles.BytesPerMebibyte;
         foreach (var metadata in sessions)
         {
             if (total <= limit) break;
@@ -185,7 +179,7 @@ public sealed class SessionRepository
         }
     }
 
-    private void Complete(SessionMetadata metadata, int? exitCode, double duration, bool compress)
+    internal void Complete(SessionMetadata metadata, int? exitCode, double duration, bool compress)
     {
         using var storeLock = LockStore();
         metadata.EndedAt = DateTimeOffset.UtcNow;
@@ -194,20 +188,20 @@ public sealed class SessionRepository
         var path = ResolvePath(metadata.RelativeFilePath);
         if (compress)
         {
-            var compressedPath = path + ".gz";
+            var compressedPath = path + SessionRecordingFiles.CompressionExtension;
             var originalRelativePath = metadata.RelativeFilePath;
             var createdCompressedFile = false;
             try
             {
                 using (var input = File.OpenRead(path))
                 {
-                    using var output = CreatePrivateFile(compressedPath);
+                    using var output = SessionRecordingFiles.CreatePrivateFile(compressedPath);
                     createdCompressedFile = true;
                     using var gzip = new GZipStream(output, CompressionLevel.Optimal);
                     input.CopyTo(gzip);
                 }
                 metadata.Compressed = true;
-                metadata.RelativeFilePath += ".gz";
+                metadata.RelativeFilePath += SessionRecordingFiles.CompressionExtension;
                 metadata.FileSize = new FileInfo(compressedPath).Length;
                 Save(metadata);
             }
@@ -239,7 +233,7 @@ public sealed class SessionRepository
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var stream = CreatePrivateFile(temporary))
+            using (var stream = SessionRecordingFiles.CreatePrivateFile(temporary))
                 JsonSerializer.Serialize(stream, metadata, SessionRecordingJsonContext.Default.SessionMetadata);
             File.Move(temporary, path, overwrite: true);
         }
@@ -249,7 +243,7 @@ public sealed class SessionRepository
     private string MetadataPath(SessionMetadata metadata)
     {
         var path = ResolvePath(metadata.RelativeFilePath);
-        return Path.ChangeExtension(metadata.Compressed ? path[..^3] : path, ".json");
+        return Path.ChangeExtension(metadata.Compressed ? path[..^SessionRecordingFiles.CompressionExtension.Length] : path, SessionRecordingFiles.MetadataExtension);
     }
 
     public string ResolvePath(string relativePath)
@@ -262,87 +256,8 @@ public sealed class SessionRepository
         return path;
     }
 
-    private static void CreatePrivateDirectory(string path)
+    internal void ReleaseWriter(string id)
     {
-        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(path);
-        else
-        {
-            var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
-            Directory.CreateDirectory(path, mode);
-            File.SetUnixFileMode(path, mode);
-        }
-    }
-
-    private static FileStream CreatePrivateFile(string path)
-    {
-        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.Read };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        return new FileStream(path, options);
-    }
-
-    public sealed class SessionWriter : IDisposable
-    {
-        private readonly object writeGate = new();
-        private readonly SessionRepository repository;
-        private readonly StreamWriter writer;
-        private readonly bool timing;
-        private readonly System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        private bool disposed;
-        public SessionMetadata Metadata { get; }
-
-        internal SessionWriter(SessionRepository repository, SessionMetadata metadata, bool timing, int width, int height)
-        {
-            this.repository = repository;
-            Metadata = metadata;
-            this.timing = timing;
-            writer = new StreamWriter(CreatePrivateFile(repository.ResolvePath(metadata.RelativeFilePath)), new UTF8Encoding(false)) { NewLine = "\n" };
-            WriteJson(json =>
-            {
-                json.WriteStartObject(); json.WriteNumber("version", 2); json.WriteNumber("width", Math.Max(width, 1));
-                json.WriteNumber("height", Math.Max(height, 1)); json.WriteNumber("timestamp", metadata.StartedAt.ToUnixTimeSeconds());
-                json.WriteString("title", $"{metadata.HostAlias} (output only)"); json.WriteString("sshocked_recording_type", "output-only");
-                json.WriteEndObject();
-            });
-        }
-
-        public void Append(string data)
-        {
-            lock (writeGate)
-            {
-                ObjectDisposedException.ThrowIf(disposed, this);
-                var elapsed = timing ? stopwatch.Elapsed.TotalSeconds : 0;
-                WriteJson(json => { json.WriteStartArray(); json.WriteNumberValue(elapsed); json.WriteStringValue("o"); json.WriteStringValue(data); json.WriteEndArray(); });
-            }
-        }
-
-        private void WriteJson(Action<Utf8JsonWriter> write)
-        {
-            using var buffer = new MemoryStream();
-            using (var json = new Utf8JsonWriter(buffer)) write(json);
-            writer.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
-            writer.Flush();
-        }
-
-        public void Complete(int? exitCode, bool compress = false)
-        {
-            lock (writeGate)
-            {
-                if (disposed) return;
-                writer.Dispose();
-                disposed = true;
-                try { repository.Complete(Metadata, exitCode, stopwatch.Elapsed.TotalSeconds, compress); }
-                finally { lock (repository.gate) repository.active.Remove(Metadata.Id); }
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (writeGate)
-            {
-                if (disposed) return;
-                writer.Dispose(); disposed = true;
-                lock (repository.gate) repository.active.Remove(Metadata.Id);
-            }
-        }
+        lock (gate) active.Remove(id);
     }
 }
