@@ -26,10 +26,17 @@ public sealed class SshKeyDiscoveryService(ILogger<SshKeyDiscoveryService> logge
             {
                 foreach (var line in File.ReadLines(configPath))
                 {
-                    var parts = SshConfigSyntax.ParseDirective(line);
-                    if (parts is not { Keyword: "identityfile" }) continue;
-                    var path = ExpandPath(parts.Value, sshDirectory);
-                    if (path is not null && File.Exists(path) && File.Exists(path + ".pub")) paths.Add(path);
+                    try
+                    {
+                        var parts = SshConfigSyntax.ParseDirective(line);
+                        if (parts is not { Keyword: "identityfile" }) continue;
+                        var path = ExpandPath(parts.Value, sshDirectory);
+                        if (path is not null && File.Exists(path) && File.Exists(path + ".pub")) paths.Add(path);
+                    }
+                    catch (Exception ex) when (ex is FormatException or ArgumentException or NotSupportedException)
+                    {
+                        logger.LogDebug(ex, "Skipping an invalid SSH key reference in {Path}", configPath);
+                    }
                 }
             }
         }
