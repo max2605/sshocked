@@ -21,8 +21,13 @@ public sealed class SessionRepository
 
     private static string DefaultDirectory() => Path.Combine(ConfigPaths.DirectoryPath, "sessions");
 
+    // Child terminal sessions use separate repository instances and processes. Keep
+    // metadata snapshots and synchronous mutations consistent across those owners.
+    private CrossProcessFileLock LockStore() => CrossProcessFileLock.Acquire(Path.Combine(DirectoryPath, ".repository"));
+
     public SessionWriter Create(ServerHost host, bool captureTiming = true, int width = 80, int height = 24)
     {
+        using var storeLock = LockStore();
         var metadata = new SessionMetadata
         {
             HostId = host.Id, HostAlias = host.Alias, HostName = host.HostName, User = host.User
@@ -46,6 +51,7 @@ public sealed class SessionRepository
     public IReadOnlyList<SessionMetadata> List(int last = 20, string? server = null, DateTimeOffset? since = null)
     {
         if (last < 1) throw new ArgumentException("The session count must be positive.");
+        using var storeLock = LockStore();
         var sessions = new List<SessionMetadata>();
         var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint, IgnoreInaccessible = true };
         foreach (var path in Directory.EnumerateFiles(DirectoryPath, "*.json", options))
@@ -127,7 +133,11 @@ public sealed class SessionRepository
         return destination;
     }
 
-    public void Delete(string id) => Delete(Find(id));
+    public void Delete(string id)
+    {
+        using var storeLock = LockStore();
+        Delete(Find(id));
+    }
 
     private void Delete(SessionMetadata metadata)
     {
@@ -142,6 +152,7 @@ public sealed class SessionRepository
 
     public int DeleteOlderThan(DateTimeOffset cutoff, bool completedOnly = false)
     {
+        using var storeLock = LockStore();
         var count = 0;
         foreach (var metadata in List(int.MaxValue).Where(session => session.StartedAt < cutoff && (!completedOnly || session.EndedAt is not null)))
         {
@@ -154,6 +165,7 @@ public sealed class SessionRepository
 
     public void ApplyRetention(SessionRecordingSettings settings)
     {
+        using var storeLock = LockStore();
         if (settings.RetentionDays is < 0 or > 365000) throw new ArgumentException("Session retention days must be between 0 and 365000.");
         if (settings.RetentionDays > 0) DeleteOlderThan(DateTimeOffset.UtcNow.AddDays(-settings.RetentionDays), completedOnly: true);
         if (settings.MaxTotalSizeMb is not { } megabytes) return;
@@ -175,6 +187,7 @@ public sealed class SessionRepository
 
     private void Complete(SessionMetadata metadata, int? exitCode, double duration, bool compress)
     {
+        using var storeLock = LockStore();
         metadata.EndedAt = DateTimeOffset.UtcNow;
         metadata.DurationSeconds = duration;
         metadata.ExitCode = exitCode;
@@ -221,6 +234,7 @@ public sealed class SessionRepository
 
     private void Save(SessionMetadata metadata)
     {
+        using var storeLock = LockStore();
         var path = MetadataPath(metadata);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try

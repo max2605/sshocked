@@ -30,8 +30,10 @@ sensitive content; recordings are not automatically redacted or encrypted.
 ## Storage and retention
 
 Recordings live in `%APPDATA%\sshocked\sessions` on Windows and
-`~/.config/sshocked/sessions` on Unix, under UTC `YYYY/MM/DD` directories. Cast files
-have a matching JSON metadata file containing host identity, start/end time, duration,
+`~/.config/sshocked/sessions` on Unix, under UTC `YYYY/MM/DD` directories. When
+`SSHOCKED_CONFIG_DIR` is set, recordings use its `sessions` subdirectory. Metadata
+snapshots, completion and retention/deletion updates are serialized across terminal
+processes. Cast files have a matching JSON metadata file containing host identity, start/end time, duration,
 size, exit code, and `output-only` recording type. No process environment variables are
 copied into metadata. Generated directories and files use owner-only permissions on
 Unix; Windows uses the user's existing profile-directory permissions.

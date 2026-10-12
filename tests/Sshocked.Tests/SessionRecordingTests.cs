@@ -139,6 +139,38 @@ public sealed class SessionRecordingTests : IDisposable
         Assert.Empty(observer.List());
     }
 
+    [Fact]
+    public async Task ConcurrentRepositoriesCanListAndApplySizeRetentionWithoutDeletingTheSameSnapshot()
+    {
+        var owner = Repository();
+        var first = Repository();
+        var second = Repository();
+        for (var round = 0; round < 3; round++)
+        {
+            for (var index = 0; index < 64; index++)
+            {
+                using var writer = owner.Create(Host($"round-{round}-host-{index}"));
+                writer.Append(new string('x', 32 * 1024));
+                writer.Complete(0);
+            }
+
+            using var start = new ManualResetEventSlim();
+            var settings = new SessionRecordingSettings { RetentionDays = 0, MaxTotalSizeMb = 1 };
+            var jobs = new[]
+            {
+                Task.Run(() => { start.Wait(); first.ApplyRetention(settings); }),
+                Task.Run(() => { start.Wait(); second.ApplyRetention(settings); }),
+                Task.Run(() => { start.Wait(); for (var index = 0; index < 30; index++) owner.List(int.MaxValue); })
+            };
+            start.Set();
+            await Task.WhenAll(jobs);
+            var remaining = owner.List(int.MaxValue);
+            Assert.NotEmpty(remaining);
+            Assert.True(remaining.Sum(session => session.FileSize) <= 1024 * 1024);
+            Assert.All(remaining, session => Assert.NotNull(session.EndedAt));
+        }
+    }
+
     [Theory]
     [InlineData("../outside.cast")]
     [InlineData("../../outside.cast")]
@@ -176,10 +208,18 @@ public sealed class SessionRecordingTests : IDisposable
         var config = new Config();
         config.Value.SessionRecording.Compress = false;
         var repository = Repository();
-        var service = new SessionRecordingService(config, new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var runner = new ObservedRunner();
+        var service = new SessionRecordingService(config, runner, repository, NullLogger<SessionRecordingService>.Instance);
+        using var cancellation = new CancellationTokenSource();
         var info = Child("echo before-cancel & ping -n 30 127.0.0.1 > nul", "printf before-cancel; sleep 30");
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.Record(info, Host(), cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.Record(info, Host(), cancellation.Token, onStarted: () =>
+        {
+            using var child = Process.GetProcessById(runner.ProcessId);
+            Assert.False(child.HasExited);
+            cancellation.Cancel();
+            return Task.CompletedTask;
+        }));
+        Assert.Throws<ArgumentException>(() => Process.GetProcessById(runner.ProcessId));
         var metadata = Assert.Single(repository.List());
         Assert.NotNull(metadata.EndedAt);
         Assert.Null(metadata.ExitCode);
