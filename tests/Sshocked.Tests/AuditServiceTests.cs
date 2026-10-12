@@ -30,7 +30,7 @@ public sealed class AuditServiceTests : IDisposable
     [InlineData("echo 'VerySensitive' | sudo -S docker ps", "VerySensitive")]
     [InlineData("curl -H 'Authorization: Bearer VerySensitive'", "VerySensitive")]
     [InlineData("tool --password=VerySensitive --token VerySensitive", "VerySensitive")]
-    public void CommonSecretFormsAreRedacted(string command, string secret) => Assert.DoesNotContain(secret, AuditService.Redact(command));
+    public void CommonSecretFormsAreRedacted(string command, string secret) => Assert.DoesNotContain(secret, AuditRedactor.Redact(command));
 
     [Fact]
     public void RetentionAndConfigEventsPreserveOnlyAllowedEntries()

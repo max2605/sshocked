@@ -23,7 +23,7 @@ public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiCh
             catch (Exception error)
             {
                 logger.LogError(error, "Menu action failed");
-                AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(AuditService.Redact(error.Message) ?? "Action failed")}[/]");
+                AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(AuditRedactor.Redact(error.Message) ?? "Action failed")}[/]");
                 if (AnsiConsole.Profile.Capabilities.Interactive) console.WaitForKey();
             }
         }

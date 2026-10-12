@@ -37,7 +37,8 @@ public sealed class AuditCommandService(IAuditService audit, IConfigRepository r
         var entries = audit.Query(new(options.Integer("last", 20), options.Get("type"), options.Get("server"), since, until));
         switch (options.Get("output", "table")!.ToLowerInvariant())
         {
-            case "json": case "pretty-json":
+            case "json":
+            case "pretty-json":
                 console.WriteLine(JsonSerializer.Serialize(entries.ToList(), AuditJsonContext.Default.ListAuditEntry)); break;
             case "jsonl":
                 foreach (var entry in entries) console.WriteLine(JsonSerializer.Serialize(entry, AuditJsonContext.Default.AuditEntry)); break;

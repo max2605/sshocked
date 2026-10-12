@@ -49,7 +49,7 @@ try
 catch (Exception ex)
 {
     logger.LogCritical(ex, "Application terminated with unhandled exception");
-    Console.Error.WriteLine($"Error: {AuditService.Redact(ex.Message)}");
+    Console.Error.WriteLine($"Error: {AuditRedactor.Redact(ex.Message)}");
     Environment.ExitCode = ex is OperationCanceledException ? 130 : 1;
 }
 finally

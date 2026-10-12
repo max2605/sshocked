@@ -30,7 +30,7 @@ public sealed class FileLogger(string categoryName, FileLoggerProcessor processo
             Timestamp = DateTimeOffset.UtcNow,
             LogLevel = logLevel,
             CategoryName = categoryName,
-            Message = AuditService.Redact(message) ?? string.Empty
+            Message = AuditRedactor.Redact(message) ?? string.Empty
         });
     }
 }
