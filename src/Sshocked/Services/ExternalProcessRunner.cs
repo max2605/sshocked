@@ -54,7 +54,8 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
             catch (InvalidOperationException) when (process.HasExited) { }
             await process.WaitForExitAsync(CancellationToken.None);
             // Observe redirected readers even when cancellation interrupts the process.
-            try { await Task.WhenAll(output, error, inputTask); } catch (OperationCanceledException) { }
+            try { await Task.WhenAll(output, error, inputTask); }
+            catch { /* Observe pipe errors caused by shutdown without replacing the initiating failure. */ }
             throw;
         }
     }
