@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ILogger<MainMenuService> logger) : IMainMenuService
+public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ISshConfigSyncMenuService sshConfigSyncMenu, ILogger<MainMenuService> logger) : IMainMenuService
 {
 
     public async Task Show()
@@ -38,6 +38,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
             new("Quick Connect", 'C', executeAsync: () => ConnectToServer(config)),
             new("Connect Group", 'G', executeAsync: () => ConnectToGroup(config)),
             new("Run command", 'X', executeAsync: () => RunCommandOnGroup(config)),
+            new("SSH Config Sync", 'Y', executeAsync: sshConfigSyncMenu.Show),
             new("Manage Servers", 'S', executeAsync: () => ShowServersMenu(config)),
             new("Manage Groups", 'R', executeAsync: () => ShowGroupsMenu(config)),
             new("Settings", 'T', executeAsync: () => ShowSettingsMenu(config)),

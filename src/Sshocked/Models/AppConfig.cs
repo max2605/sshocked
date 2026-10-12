@@ -10,4 +10,5 @@ public sealed class AppConfig
     public int MaxRecentConnections { get; set; } = 50;
     public List<RecentConnection> RecentConnections { get; set; } = [];
     public AuditSettings Audit { get; set; } = new();
+    public SshConfigSyncSettings SshConfigSync { get; set; } = new();
 }

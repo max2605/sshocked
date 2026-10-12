@@ -69,6 +69,10 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<IManagementCommandHandler, AuditCommandService>();
     services.AddSingleton<IQuickAccessMenuService, QuickAccessMenuService>();
     services.AddSingleton<ISshConfigImporter, SshConfigImporter>();
+    services.AddSingleton<ISshConfigExporter, SshConfigExporter>();
+    services.AddSingleton<ISshConfigWatcher, SshConfigWatcher>();
+    services.AddSingleton<ISshConfigSyncService, SshConfigSyncService>();
+    services.AddSingleton<ISshConfigSyncMenuService, SshConfigSyncMenuService>();
     services.AddSingleton<ISshKeyDiscoveryService, SshKeyDiscoveryService>();
     services.AddSingleton<ISshKeyPickerService, SshKeyPickerService>();
     services.AddSingleton<IConsoleWriterService, ConsoleWriterService>();

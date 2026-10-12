@@ -4,7 +4,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImporter sshConfigImporter, IMainMenuService mainMenu, IConsoleWriterService console, ILogger<AppRunner> logger) : IAppRunner
+public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImporter sshConfigImporter, ISshConfigSyncService sync, IMainMenuService mainMenu, IConsoleWriterService console, ILogger<AppRunner> logger) : IAppRunner
 {
     public async Task Run()
     {
@@ -44,6 +44,7 @@ public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImpo
             configRepository.Save(config);
         }
 
+        sync.Initialize();
         await mainMenu.Show();
 
         logger.LogInformation("AppRunner finished");
