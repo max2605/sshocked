@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, ILogger<MainMenuService> logger) : IMainMenuService
+public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ILogger<MainMenuService> logger) : IMainMenuService
 {
 
     public async Task Show()
@@ -33,6 +33,8 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
     {
         return new List<MenuEntry>
         {
+            new("Favorites", 'F', executeAsync: quickAccess.ShowFavorites),
+            new("Recent connections", 'H', executeAsync: quickAccess.ShowRecent),
             new("Quick Connect", 'C', executeAsync: () => ConnectToServer(config)),
             new("Connect Group", 'G', executeAsync: () => ConnectToGroup(config)),
             new("Run command", 'X', executeAsync: () => RunCommandOnGroup(config)),
@@ -63,6 +65,12 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
 
             var menuEntries = new List<MenuEntry>
             {
+                new("Toggle recent connection tracking", 'H', executeAsync: () =>
+                {
+                    config.TrackRecentConnections = !config.TrackRecentConnections;
+                    configRepository.Save(config);
+                    return Task.CompletedTask;
+                }),
                 new("Default to Multi-Tab (parallel)", 'M', executeAsync: () =>
                 {
                     config.DefaultConnectionStrategy = ConnectionStrategy.MultiTab;
@@ -424,6 +432,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
         var menuEntries = new List<MenuEntry>
         {
             new("Exec (sh)", 'E', executeAsync: () => consoleHelper.RunDockerExec(host, container)),
+            new("Toggle favorite", 'F', executeAsync: () => { recents.ToggleFavorite(host, container); return Task.CompletedTask; }),
             new("Logs (-f)", 'L', executeAsync: () => consoleHelper.RunDockerLogs(host, container)),
             new("Edit", 'I', executeAsync: () =>
             {

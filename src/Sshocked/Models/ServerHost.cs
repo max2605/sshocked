@@ -16,6 +16,7 @@ public sealed class ServerHost
     public string? CustomSshOptions { get; set; }
     public DockerHostInfo? DockerInfo { get; set; }
     public List<ContainerModel> SavedContainers { get; set; } = [];
+    public bool IsFavorite { get; set; }
 
     [JsonIgnore]
     public string? SudoPassword { get; set; }

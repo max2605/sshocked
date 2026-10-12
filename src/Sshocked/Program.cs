@@ -64,6 +64,8 @@ static void ConfigureServices(IServiceCollection services)
     });
 
     services.AddSingleton<IConfigRepository, JsonConfigRepository>();
+    services.AddSingleton<IRecentConnectionService, RecentConnectionService>();
+    services.AddSingleton<IQuickAccessMenuService, QuickAccessMenuService>();
     services.AddSingleton<ISshConfigImporter, SshConfigImporter>();
     services.AddSingleton<IConsoleWriterService, ConsoleWriterService>();
     services.AddSingleton<IGroupManagementService, GroupManagementService>();

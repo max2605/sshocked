@@ -60,7 +60,7 @@ public sealed class TableRendererService : ITableRendererService
 
             // 1. Add Host row
             table.AddRow(
-                new Markup($"[bold]{Markup.Escape(host.Alias)}[/]"),
+                new Markup($"{(host.IsFavorite ? "[yellow]★[/] " : "")}[bold]{Markup.Escape(host.Alias)}[/]"),
                 new Text(host.HostName),
                 new Text(host.User),
                 new Text(host.Port.ToString()),
@@ -70,7 +70,7 @@ public sealed class TableRendererService : ITableRendererService
             foreach (var container in host.SavedContainers)
             {
                 table.AddRow(
-                    new Markup($"[grey]{Markup.Escape(container.Name)}[/]"),
+                    new Markup($"{(container.IsFavorite ? "[yellow]★[/] " : "")}[grey]{Markup.Escape(container.Name)}[/]"),
                     new Markup($"[grey]{Markup.Escape(container.Image)}[/]"),
                     new Text(""),
                     new Text(""),

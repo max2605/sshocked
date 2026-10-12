@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav) : IServerMenuService
+public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -50,6 +50,11 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
             var menuEntries = new List<MenuEntry>
             {
                 new("Connect", 'C', executeAsync: () => consoleHelper.RunSsh(host)),
+                new(host.IsFavorite ? "Remove favorite" : "Add favorite", 'F', executeAsync: () =>
+                {
+                    recents.ToggleFavorite(host);
+                    return Task.CompletedTask;
+                }),
                 new("Scan Docker", 'D', executeAsync: () => ScanDockerForHost(host)),
                 new("Edit", 'E', executeAsync: () =>
                 {

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 namespace Sshocked.Models;
 
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(RecentConnection))]
 [JsonSerializable(typeof(ServerGroup))]
 [JsonSerializable(typeof(ServerHost))]
 [JsonSerializable(typeof(AuthType))]

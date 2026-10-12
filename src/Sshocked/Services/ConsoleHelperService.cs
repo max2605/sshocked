@@ -4,7 +4,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ConsoleHelperService(IProcessService processService, IDockerService dockerService) : IConsoleHelperService
+public sealed class ConsoleHelperService(ISshRunnerService sshRunner, IDockerService dockerService, IRecentConnectionService recents) : IConsoleHelperService
 {
     public void WaitForKey()
     {
@@ -17,7 +17,12 @@ public sealed class ConsoleHelperService(IProcessService processService, IDocker
         AnsiConsole.Console.Profile.Capabilities.Interactive = false;
         System.Console.ResetColor();
 
-        await processService.RunSsh(host);
+        try { await sshRunner.Connect(host); }
+        finally
+        {
+            System.Console.ResetColor();
+            AnsiConsole.Console.Profile.Capabilities.Interactive = true;
+        }
 
         System.Console.ResetColor();
         AnsiConsole.Console.Profile.Capabilities.Interactive = true;
@@ -30,7 +35,16 @@ public sealed class ConsoleHelperService(IProcessService processService, IDocker
         AnsiConsole.Console.Profile.Capabilities.Interactive = false;
         System.Console.ResetColor();
 
-        await dockerService.Exec(host, container);
+        try
+        {
+            await dockerService.Exec(host, container);
+            recents.Record(host, container);
+        }
+        finally
+        {
+            System.Console.ResetColor();
+            AnsiConsole.Console.Profile.Capabilities.Interactive = true;
+        }
 
         System.Console.ResetColor();
         AnsiConsole.Console.Profile.Capabilities.Interactive = true;

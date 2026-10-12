@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService) : IGroupMenuService
+public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IRecentConnectionService recents) : IGroupMenuService
 {
     public async Task Browse()
     {
@@ -172,6 +172,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
         var menuEntries = new List<MenuEntry>
         {
             new("Exec (sh)", 'E', executeAsync: () => consoleHelper.RunDockerExec(host, container)),
+            new("Toggle favorite", 'F', executeAsync: () => { recents.ToggleFavorite(host, container); return Task.CompletedTask; }),
             new("Logs (-f)", 'L', executeAsync: () => consoleHelper.RunDockerLogs(host, container)),
             new("Back", 'B', actionType: MenuActionType.Back)
         };
