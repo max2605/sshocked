@@ -7,7 +7,6 @@ namespace Sshocked.Services;
 
 public sealed class SshConfigImporter(ILogger<SshConfigImporter> logger) : ISshConfigImporter
 {
-    private sealed record Stanza(string[] Patterns, List<SshConfigSyntax.Directive> Directives, string? Id = null);
 
     public List<ServerHost> Import(string? configPath = null)
     {
@@ -25,8 +24,8 @@ public sealed class SshConfigImporter(ILogger<SshConfigImporter> logger) : ISshC
 
     public List<ServerHost> Parse(string configContent)
     {
-        var stanzas = new List<Stanza>();
-        var current = new Stanza(["*"], []);
+        var stanzas = new List<SshConfigImporterStanza>();
+        var current = new SshConfigImporterStanza(["*"], []);
         stanzas.Add(current);
         var inMatch = false;
         string? nextId = null;
@@ -58,13 +57,13 @@ public sealed class SshConfigImporter(ILogger<SshConfigImporter> logger) : ISshC
         foreach (var alias in aliases)
         {
             // OpenSSH uses the first obtained value. Later Host * defaults still apply to missing values.
-            var directives = new Dictionary<string, SshConfigSyntax.Directive>(StringComparer.OrdinalIgnoreCase);
+            var directives = new Dictionary<string, SshConfigSyntaxDirective>(StringComparer.OrdinalIgnoreCase);
             string? id = null;
-            foreach (var stanza in stanzas.Where(stanza => Matches(stanza.Patterns, alias)))
+            foreach (SshConfigImporterStanza stanza in stanzas.Where(stanza => Matches(stanza.Patterns, alias)))
             {
                 if (stanza.Patterns.Any(pattern => pattern.Equals(alias, StringComparison.OrdinalIgnoreCase)) && stanza.Id is not null)
                     id ??= stanza.Id;
-                foreach (var directive in stanza.Directives)
+                foreach (SshConfigSyntaxDirective directive in stanza.Directives)
                     if (directive.Keyword is not ("include" or "host" or "match")) directives.TryAdd(directive.Keyword, directive);
             }
             var values = directives.ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.OrdinalIgnoreCase);

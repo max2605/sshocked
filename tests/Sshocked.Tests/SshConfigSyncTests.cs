@@ -14,7 +14,7 @@ public sealed class SshConfigSyncTests
         existing.GroupId = "group"; existing.Tags = ["prod"]; existing.SavedContainers = [new() { ContainerId = "container" }];
         var config = new AppConfig { Hosts = [existing] };
         var incoming = Host("web", "new.example"); incoming.Id = "different-id";
-        var result = SshConfigSyncService.Merge(config, [incoming], SyncConflictResolution.OpenSshWins);
+        var result = SshConfigMerge.Merge(config, [incoming], SyncConflictResolution.OpenSshWins);
         Assert.Equal(1, result.Updated);
         Assert.Equal("new.example", existing.HostName);
         Assert.Equal("web-id", existing.Id);
@@ -27,13 +27,13 @@ public sealed class SshConfigSyncTests
     public void KeepBothCreatesUniqueAliasesAndUnansweredConflictIsSkipped()
     {
         var config = new AppConfig { Hosts = [Host("web", "old"), Host("web-openssh", "other")] };
-        var result = SshConfigSyncService.Merge(config, [Host("web", "new")], SyncConflictResolution.KeepBoth);
+        var result = SshConfigMerge.Merge(config, [Host("web", "new")], SyncConflictResolution.KeepBoth);
         Assert.Equal(1, result.Added);
         Assert.Contains(config.Hosts, host => host.Alias == "web-openssh-2" && host.HostName == "new");
-        result = SshConfigSyncService.Merge(config, [Host("web", "new")], SyncConflictResolution.KeepBoth);
+        result = SshConfigMerge.Merge(config, [Host("web", "new")], SyncConflictResolution.KeepBoth);
         Assert.Equal(0, result.Added);
         Assert.Equal(3, config.Hosts.Count);
-        result = SshConfigSyncService.Merge(config, [Host("web", "another")], SyncConflictResolution.PromptUser);
+        result = SshConfigMerge.Merge(config, [Host("web", "another")], SyncConflictResolution.PromptUser);
         Assert.Equal(1, result.Skipped);
         Assert.Equal("old", config.Hosts.Single(h => h.Alias == "web").HostName);
     }
@@ -47,7 +47,7 @@ public sealed class SshConfigSyncTests
         var incoming = Host("web", "web.example");
         incoming.AuthType = AuthType.CustomConfig;
         incoming.CustomSshOptions = "-o \"serveraliveinterval=60\"";
-        var result = SshConfigSyncService.Merge(new AppConfig { Hosts = [existing] }, [incoming], SyncConflictResolution.PromptUser);
+        var result = SshConfigMerge.Merge(new AppConfig { Hosts = [existing] }, [incoming], SyncConflictResolution.PromptUser);
         Assert.Equal(0, result.Conflicts);
         Assert.Equal(AuthType.SshAgent, existing.AuthType);
     }
@@ -56,11 +56,11 @@ public sealed class SshConfigSyncTests
     public void EndpointFallbackRequiresResolutionAndAmbiguousMatchesDoNotOverwrite()
     {
         var config = new AppConfig { Hosts = [Host("original", "same.example")] };
-        var result = SshConfigSyncService.Merge(config, [Host("renamed", "same.example")], SyncConflictResolution.PromptUser);
+        var result = SshConfigMerge.Merge(config, [Host("renamed", "same.example")], SyncConflictResolution.PromptUser);
         Assert.Equal(1, result.Skipped);
         Assert.Equal("original", Assert.Single(config.Hosts).Alias);
         config.Hosts.Add(Host("another", "same.example"));
-        result = SshConfigSyncService.Merge(config, [Host("new-alias", "same.example")], SyncConflictResolution.OpenSshWins);
+        result = SshConfigMerge.Merge(config, [Host("new-alias", "same.example")], SyncConflictResolution.OpenSshWins);
         Assert.Equal(1, result.Added);
         Assert.Equal(3, config.Hosts.Count);
     }

@@ -5,9 +5,8 @@ namespace Sshocked.Services;
 /// <summary>Small OpenSSH tokenizer shared by import and public-key reference discovery.</summary>
 internal static class SshConfigSyntax
 {
-    internal sealed record Directive(string Keyword, string Value, string? RawValue = null);
 
-    internal static Directive? ParseDirective(string line, bool comments = true)
+    internal static SshConfigSyntaxDirective? ParseDirective(string line, bool comments = true)
     {
         var trimmed = line.Trim();
         if (trimmed.Length == 0 || trimmed.StartsWith('#')) return null;
