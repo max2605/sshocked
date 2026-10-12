@@ -141,7 +141,12 @@ public sealed class FileTransferUi(IFileTransferService transferService)
             AnsiConsole.MarkupLine(exitCode == 0 ? "[green]Transfer completed.[/]" : $"[red]Transfer failed (exit code {exitCode}).[/]");
         }
         catch (Exception exception) { AnsiConsole.MarkupLine($"[red]Transfer failed:[/] {Markup.Escape(exception.Message)}"); }
-        finally { AnsiConsole.Profile.Capabilities.Interactive = interactive; System.Console.ResetColor(); }
+        finally
+        {
+            AnsiConsole.Profile.Capabilities.Interactive = interactive;
+            System.Console.ResetColor();
+            AcknowledgeResult(interactive);
+        }
     }
 
     private static async Task RunGroup(Func<Task<List<FileTransferResult>>> transfer)
@@ -160,7 +165,19 @@ public sealed class FileTransferUi(IFileTransferService transferService)
             }
         }
         catch (Exception exception) { AnsiConsole.MarkupLine($"[red]Group transfer failed:[/] {Markup.Escape(exception.Message)}"); }
-        finally { AnsiConsole.Profile.Capabilities.Interactive = interactive; System.Console.ResetColor(); }
+        finally
+        {
+            AnsiConsole.Profile.Capabilities.Interactive = interactive;
+            System.Console.ResetColor();
+            AcknowledgeResult(interactive);
+        }
+    }
+
+    private static void AcknowledgeResult(bool interactive)
+    {
+        if (!interactive || System.Console.IsInputRedirected || System.Console.IsOutputRedirected) return;
+        AnsiConsole.MarkupLine("[grey]Press any key to return...[/]");
+        System.Console.ReadKey(intercept: true);
     }
 
     public static string ParentPath(string path)
