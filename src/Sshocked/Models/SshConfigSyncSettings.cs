@@ -1,8 +1,5 @@
 namespace Sshocked.Models;
 
-public enum ExportStrategy { MarkedBlocks, IncludeFile }
-public enum SyncConflictResolution { PromptUser, SshockedWins, OpenSshWins, KeepBoth, Skip }
-
 public sealed class SshConfigSyncSettings
 {
     public bool AutoExportOnChange { get; set; }
@@ -23,11 +20,3 @@ public sealed class SshConfigSyncSettings
     public int LastExportCount { get; set; }
     public int LastImportCount { get; set; }
 }
-
-public sealed record SshConfigExportResult(int Exported, bool Changed, IReadOnlyList<string> WrittenPaths, IReadOnlyList<string> Backups);
-public sealed record SshConfigSyncResult(int Added, int Updated, int Skipped, int Conflicts)
-{
-    public int Imported => Added + Updated;
-}
-public sealed record SshConfigSyncStatus(bool IsWatching, bool HasPendingChanges, string? LastError, int ConfiguredHosts,
-    int OpenSshHosts, SshConfigSyncSettings Settings);

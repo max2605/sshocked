@@ -5,4 +5,4 @@ namespace Sshocked.Models;
 [JsonSerializable(typeof(AuditEntry))]
 [JsonSerializable(typeof(List<AuditEntry>))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-public partial class AuditJsonContext : JsonSerializerContext { }
+public sealed partial class AuditJsonContext : JsonSerializerContext { }

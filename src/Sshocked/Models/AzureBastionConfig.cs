@@ -1,8 +1,5 @@
 namespace Sshocked.Models;
 
-public enum BastionAuthType { Aad, SshKey, Password }
-public enum BastionConnectionMode { Native, Tunnel }
-
 public sealed class AzureBastionConfig
 {
     public string BastionName { get; set; } = string.Empty;

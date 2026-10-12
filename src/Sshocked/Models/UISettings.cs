@@ -10,6 +10,3 @@ public sealed class UISettings
     public bool ShowBreadcrumbs { get; set; } = true;
     public bool ShowFooter { get; set; } = true;
 }
-
-public enum HostReachabilityState { Unchecked, Checking, Online, Offline, Stale, ViaBastion, ViaJumpHost }
-public sealed record HostReachability(HostReachabilityState State, DateTimeOffset? LastCheckedUtc = null, bool? IsReachable = null);
