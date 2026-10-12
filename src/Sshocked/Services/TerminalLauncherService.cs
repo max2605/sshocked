@@ -36,8 +36,7 @@ public sealed class TerminalLauncherService(ILogger<TerminalLauncherService> log
         else if (OperatingSystem.IsMacOS())
         {
             info.FileName = "osascript";
-            var command = string.Join(' ', new[] { executable }.Concat(arguments).Select(ShellQuote));
-            var literal = command.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            var literal = BuildMacShellCommand(executable, arguments, ConfigPaths.DirectoryPath).Replace("\\", "\\\\").Replace("\"", "\\\"");
             tokens.AddRange(["-e", $"tell application \"Terminal\" to do script \"{literal}\"", "-e", "tell application \"Terminal\" to activate"]);
         }
         else
@@ -52,6 +51,9 @@ public sealed class TerminalLauncherService(ILogger<TerminalLauncherService> log
         foreach (var token in tokens) info.ArgumentList.Add(token);
         return info;
     }
+
+    public static string BuildMacShellCommand(string executable, IReadOnlyList<string> arguments, string configDirectory)
+        => string.Join(' ', new[] { "env", "SSHOCKED_CONFIG_DIR=" + configDirectory, executable }.Concat(arguments).Select(ShellQuote));
 
     private static bool IsOnPath(string command) => (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
         .Any(path => File.Exists(Path.Combine(path, command)));
