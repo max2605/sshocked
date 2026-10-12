@@ -67,6 +67,12 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
             var menuEntries = new List<MenuEntry>
             {
                 new("Manage secret providers", 'P', executeAsync: secretUi.Show),
+                new("Global connection hooks", 'K', executeAsync: () =>
+                {
+                    config.GlobalHooks = HookConfigurationUi.ConfigureGlobal(config.GlobalHooks);
+                    configRepository.Save(config);
+                    return Task.CompletedTask;
+                }),
                 new("Toggle recent connection tracking", 'H', executeAsync: () =>
                 {
                     config.TrackRecentConnections = !config.TrackRecentConnections;

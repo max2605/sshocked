@@ -19,13 +19,16 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
 
     public Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken = default) => RunCore(startInfo, null, cancellationToken);
 
+    public Task<ProcessResult> RunSessionAsync(ProcessStartInfo startInfo, Func<Task>? onStarted, CancellationToken cancellationToken = default)
+        => RunCore(startInfo, null, cancellationToken, onStarted);
+
     public Task<ProcessResult> RunWithInputAsync(ProcessStartInfo startInfo, string input, CancellationToken cancellationToken = default)
     {
         startInfo.RedirectStandardInput = true;
         return RunCore(startInfo, input, cancellationToken);
     }
 
-    private async Task<ProcessResult> RunCore(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken)
+    private async Task<ProcessResult> RunCore(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken, Func<Task>? onStarted = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var process = Start(startInfo);
@@ -40,6 +43,7 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         }
         try
         {
+            if (onStarted is not null) await onStarted();
             await process.WaitForExitAsync(cancellationToken);
             await inputTask;
             return new ProcessResult(process.ExitCode, await output, await error);

@@ -119,6 +119,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
 
         if (authType == "Azure Bastion") host.AzureBastion = BastionConfigurationUi.Configure(null, user, keyPicker);
         if (authType == "From Key Vault" || AnsiConsole.Confirm("Configure secret references for this host?", false)) secretUi.ConfigureHost(host);
+        if (AnsiConsole.Confirm("Configure connection hooks?", false)) host.Hooks = HookConfigurationUi.Configure(host.Hooks);
         config.Hosts.Add(host);
         configRepository.Save(config);
         logger.LogInformation("Added host '{Alias}' ({HostName})", host.Alias, host.HostName);
@@ -251,6 +252,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         if (authType == "From Key Vault" || AnsiConsole.Confirm("Configure secret references for this host?",
             existing.KeySecretRef is not null || existing.PasswordSecretRef is not null || existing.SudoPasswordSecretRef is not null)) secretUi.ConfigureHost(existing);
 
+        if (AnsiConsole.Confirm("Configure connection hooks?", existing.Hooks is not null)) existing.Hooks = HookConfigurationUi.Configure(existing.Hooks);
         configRepository.Save(config);
         logger.LogInformation("Edited host '{Alias}'", existing.Alias);
     }

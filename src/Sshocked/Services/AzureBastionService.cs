@@ -45,14 +45,17 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         catch (JsonException) { return new(true, null, false, false, false, "Azure CLI returned invalid JSON. Upgrade Azure CLI and verify az version, az extension list and az account show."); }
     }
 
-    public async Task<int> RunNativeSshAsync(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
+    public Task<int> RunNativeSshAsync(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
+        => RunNativeSessionAsync(host, command, ct, environment, null);
+
+    public async Task<int> RunNativeSessionAsync(ServerHost host, string? command, CancellationToken ct, IReadOnlyDictionary<string, string?>? environment, Func<Task>? onStarted)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
         await EnsureReadyAsync(config, config.AuthType == BastionAuthType.Aad, ct);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command), captureOutput: false);
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         logger.LogInformation("Connecting to {Alias} through Azure Bastion native SSH", host.Alias);
-        return (await runner.RunAsync(info, ct)).ExitCode;
+        return (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
     }
 
     public async Task<ProcessResult> RunNativeCommandAsync(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)

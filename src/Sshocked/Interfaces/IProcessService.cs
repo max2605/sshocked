@@ -8,9 +8,10 @@ public interface IProcessService
     Task<string> RunSshCommand(ServerHost host, string command);
     Task RunSshInteractive(ServerHost host, string command);
     Task RunAzureBastionSsh(ServerHost host) => RunSsh(host);
-    async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default)
+    async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null)
     {
         ct.ThrowIfCancellationRequested();
+        if (onStarted is not null) throw new NotSupportedException("This process service does not expose session-start callbacks.");
         if (initialCommand == null) await RunSsh(host); else await RunSshInteractive(host, initialCommand);
         return 0;
     }
