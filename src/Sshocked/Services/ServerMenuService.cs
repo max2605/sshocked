@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents) : IServerMenuService
+public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -55,6 +55,10 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                     recents.ToggleFavorite(host);
                     return Task.CompletedTask;
                 }),
+                new("Upload file", 'U', executeAsync: () => transfers.Upload(host)),
+                new("Quick upload", 'Q', executeAsync: () => transfers.Upload(host, true)),
+                new("Download file", 'O', executeAsync: () => transfers.Download(host)),
+                new("Browse remote", 'R', executeAsync: () => transfers.Browse(host)),
                 new("Scan Docker", 'D', executeAsync: () => ScanDockerForHost(host)),
                 new("Edit", 'E', executeAsync: () =>
                 {

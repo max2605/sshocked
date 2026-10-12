@@ -79,6 +79,8 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<ITerminalLauncherService, TerminalLauncherService>();
     services.AddSingleton<IExternalProcessRunner, ExternalProcessRunner>();
     services.AddSingleton<IBastionService, AzureBastionService>();
+    services.AddSingleton<IFileTransferService, FileTransferService>();
+    services.AddSingleton<FileTransferUi>();
     services.AddSingleton<IDockerService, DockerService>();
     services.AddSingleton<IContainerService, ContainerService>();
     services.AddSingleton<IContainerGroupService, ContainerGroupService>();

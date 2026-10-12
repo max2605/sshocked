@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IRecentConnectionService recents) : IGroupMenuService
+public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IRecentConnectionService recents, FileTransferUi transfers) : IGroupMenuService
 {
     public async Task Browse()
     {
@@ -83,6 +83,8 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
             if (groupHosts.Count > 0)
             {
                 menuEntries.Add(new MenuEntry("Select server...", 'S', executeAsync: () => { SelectServerFromGroup(config, group); return Task.CompletedTask; }));
+                menuEntries.Add(new MenuEntry("Upload to all servers", 'U', executeAsync: () => transfers.UploadGroup(groupHosts)));
+                menuEntries.Add(new MenuEntry("Download from all servers", 'O', executeAsync: () => transfers.DownloadGroup(groupHosts)));
                 menuEntries.Add(new MenuEntry("Connect all servers", 'C', executeAsync: () => ConnectAllServers(groupHosts)));
                 menuEntries.Add(new MenuEntry("Run command on servers", 'R', executeAsync: () => RunCommandOnServers(groupHosts)));
             }
