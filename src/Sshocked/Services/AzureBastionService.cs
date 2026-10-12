@@ -52,6 +52,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
         await EnsureReadyAsync(config, true, ct);
+        ValidateNativeWindowsArguments(host, command);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command), captureOutput: false);
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         logger.LogInformation("Connecting to {Alias} through Azure Bastion native SSH", host.Alias);
@@ -62,6 +63,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
         await EnsureReadyAsync(config, true, ct);
+        ValidateNativeWindowsArguments(host, command);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command, tty: false));
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         return await runner.RunAsync(info, ct);
@@ -154,6 +156,19 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         }
         if (command != null) { args.Add("--"); if (tty) args.Add("-t"); args.Add(command); }
         return args;
+    }
+
+    private static void ValidateNativeWindowsArguments(ServerHost host, string? command)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        // Azure CLI's Bastion extension launches its inner SSH command with shell=True.
+        // ArgumentList protects our az invocation, but cannot protect that second shell.
+        if (command is not null)
+            throw new NotSupportedException("Native Azure Bastion remote commands/hooks are unavailable on Windows because Azure CLI invokes a local shell. Use tunnel mode with SSH key/password authentication.");
+        var config = host.AzureBastion!;
+        foreach (var value in new[] { config.Username ?? host.User, config.SshKeyPath ?? host.IdentityFile })
+            if (value is not null && value.IndexOfAny(['&', '|', '<', '>', '^', '%', '!', '"', '\r', '\n']) >= 0)
+                throw new ArgumentException("Native Azure Bastion username/key path contains Windows shell syntax. Use tunnel mode for this connection.");
     }
 
     public static IReadOnlyList<string> BuildTunnelArguments(AzureBastionConfig config, int localPort)

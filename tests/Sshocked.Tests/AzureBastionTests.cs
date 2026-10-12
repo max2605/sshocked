@@ -103,6 +103,63 @@ public sealed class AzureBastionTests
         Assert.DoesNotContain(runner.Starts, start => start.ArgumentList.Contains("bastion") && start.ArgumentList.Contains("network"));
     }
 
+    [Theory]
+    [InlineData("id", false)]
+    [InlineData("true&ver", false)]
+    [InlineData("id", true)]
+    [InlineData("true&ver", true)]
+    public async Task NativeWindowsCommandsCannotReachTheInnerLocalShell(string command, bool captureOutput)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var runner = ReadyNativeRunner();
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+        var error = await Assert.ThrowsAsync<NotSupportedException>(async () =>
+        {
+            if (captureOutput) await service.RunNativeCommandAsync(BastionHost(), command);
+            else await service.RunNativeSshAsync(BastionHost(), command);
+        });
+        Assert.Contains("tunnel mode", error.Message);
+        Assert.Equal(3, runner.Starts.Count);
+    }
+
+    [Theory]
+    [InlineData("user", "user&ver")]
+    [InlineData("user", "user|ver")]
+    [InlineData("username", "user%USERNAME%")]
+    [InlineData("username", "user\"&ver")]
+    [InlineData("identity", "C:/keys/key!name")]
+    [InlineData("identity", "C:/keys/key^name")]
+    [InlineData("key", "C:/keys/key<name")]
+    [InlineData("key", "C:/keys/key>name")]
+    [InlineData("key", "C:/keys/key\nname")]
+    public async Task NativeWindowsInteractiveCredentialsRejectInnerShellSyntax(string field, string value)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var runner = ReadyNativeRunner();
+        var host = BastionHost();
+        switch (field)
+        {
+            case "user": host.User = value; break;
+            case "username": host.AzureBastion!.Username = value; break;
+            case "identity": host.IdentityFile = value; break;
+            default: host.AzureBastion!.SshKeyPath = value; break;
+        }
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => service.RunNativeSshAsync(host));
+        Assert.Contains("Windows shell syntax", error.Message);
+        Assert.Equal(3, runner.Starts.Count);
+    }
+
+    private static FakeRunner ReadyNativeRunner()
+    {
+        var runner = new FakeRunner();
+        runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
+        runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"},{\"name\":\"ssh\"}]", ""));
+        runner.Results.Enqueue(new(0, "{}", ""));
+        runner.Results.Enqueue(new(0, "", ""));
+        return runner;
+    }
+
     [Fact]
     public void CustomOptionsPreserveWindowsPathsAndQuotedSpaces()
     {
