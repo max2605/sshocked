@@ -14,6 +14,7 @@ public sealed class SshConfigExporter : ISshConfigExporter
     public SshConfigExportResult Export(IEnumerable<ServerHost> hosts, SshConfigSyncSettings settings, string? configPath = null)
     {
         var path = Path.GetFullPath(configPath ?? DefaultConfigPath);
+        RejectSymbolicLink(path);
         var original = File.Exists(path) ? File.ReadAllText(path) : "";
         var newline = original.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         var selected = hosts.Where(h => !settings.ExcludeHostIds.Contains(h.Id, StringComparer.Ordinal) &&
@@ -26,6 +27,7 @@ public sealed class SshConfigExporter : ISshConfigExporter
         if (settings.Strategy == ExportStrategy.IncludeFile)
         {
             var include = ResolveIncludePath(settings.IncludeFilePath);
+            RejectSymbolicLink(include);
             if (PathEquals(include, path)) throw new InvalidOperationException("The include file must differ from the main SSH config.");
             var includeOriginal = File.Exists(include) ? File.ReadAllText(include) : "";
             // A dedicated file must contain only our marked block; refuse to claim somebody else's file.
@@ -197,9 +199,18 @@ public sealed class SshConfigExporter : ISshConfigExporter
     private static bool PathEquals(string a, string b)
         => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
+    private static void RejectSymbolicLink(string path)
+    {
+        // Atomic replacement would replace the link itself, disconnecting a user's managed dotfile.
+        // LinkTarget also identifies broken symbolic links that File.Exists does not see.
+        if (new FileInfo(path).LinkTarget is not null)
+            throw new InvalidOperationException($"Cannot export to symbolic link '{path}'. Choose a physical SSH config or include destination; the link and its target were left unchanged.");
+    }
+
     private static void WriteChanged(string path, string original, string content, List<string> written, List<string> backups)
     {
         if (original == content) return;
+        RejectSymbolicLink(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + ".sshocked-" + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -216,6 +227,7 @@ public sealed class SshConfigExporter : ISshConfigExporter
                 backups.Add(backup);
             }
             else if (original.Length != 0) throw new IOException("SSH config was removed during export. Retry after reviewing the file.");
+            RejectSymbolicLink(path);
             File.Move(temporary, path, overwrite: true);
             written.Add(path);
         }

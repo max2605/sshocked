@@ -90,6 +90,48 @@ public sealed class SshConfigExporterTests : IDisposable
         Assert.Contains("    proxycommand nc -x proxy:1080 %h %p", File.ReadAllText(ConfigPath));
     }
 
+    [SymlinkFact]
+    public void SymbolicMainConfigIsRefusedBeforeIncludeOrBackupWrites()
+    {
+        var target = Path.Combine(_directory, "dotfile-config");
+        const string original = "# managed externally\nHost original\n HostName original.example\n";
+        File.WriteAllText(target, original);
+        File.CreateSymbolicLink(ConfigPath, target);
+        var include = Path.Combine(_directory, "generated");
+        var settings = new SshConfigSyncSettings { Strategy = ExportStrategy.IncludeFile, IncludeFilePath = include };
+        var error = Assert.Throws<InvalidOperationException>(() => _exporter.Export([Host("web")], settings, ConfigPath));
+        Assert.Contains("symbolic link", error.Message);
+        Assert.NotNull(new FileInfo(ConfigPath).LinkTarget);
+        Assert.Equal(original, File.ReadAllText(target));
+        Assert.False(File.Exists(include));
+        Assert.Empty(Directory.GetFiles(_directory, "*.bak"));
+    }
+
+    [SymlinkFact]
+    public void BrokenSymbolicIncludeIsRefusedWithoutWritingMainConfig()
+    {
+        const string original = "# native config\n";
+        File.WriteAllText(ConfigPath, original);
+        var include = Path.Combine(_directory, "generated");
+        var missingTarget = Path.Combine(_directory, "missing-target");
+        File.CreateSymbolicLink(include, missingTarget);
+        var settings = new SshConfigSyncSettings { Strategy = ExportStrategy.IncludeFile, IncludeFilePath = include };
+        Assert.Throws<InvalidOperationException>(() => _exporter.Export([Host("web")], settings, ConfigPath));
+        Assert.NotNull(new FileInfo(include).LinkTarget);
+        Assert.False(File.Exists(missingTarget));
+        Assert.Equal(original, File.ReadAllText(ConfigPath));
+        Assert.Empty(Directory.GetFiles(_directory, "*.bak"));
+    }
+
     private static ServerHost Host(string alias) => new() { Id = alias + "-id", Alias = alias, HostName = alias + ".example", User = "admin", Port = 2222 };
     public void Dispose() => Directory.Delete(_directory, recursive: true);
+}
+
+/// <summary>Unix CI can create file links without elevation; Windows requires an explicit privilege.</summary>
+public sealed class SymlinkFactAttribute : FactAttribute
+{
+    public SymlinkFactAttribute()
+    {
+        if (OperatingSystem.IsWindows()) Skip = "Requires administrator or Developer Mode on Windows; exercised by Unix CI.";
+    }
 }
