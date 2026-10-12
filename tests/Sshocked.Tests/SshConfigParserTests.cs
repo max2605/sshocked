@@ -83,4 +83,14 @@ public sealed class SshConfigParserTests
     [Fact]
     public void InvalidPortFailsWholePreviewInsteadOfPartiallyApplying()
         => Assert.Throws<FormatException>(() => _importer.Parse("Host invalid\n Port 70000\n"));
+
+    [Fact]
+    public void HashInsideUnquotedValueIsPreservedWhileInlineCommentsAreRemoved()
+    {
+        var host = Assert.Single(_importer.Parse("Host literal\n User foo#bar\n IdentityFile ~/.ssh/key#name\n ServerAliveInterval 30 #comment\n"));
+        Assert.Equal("foo#bar", host.User);
+        Assert.Equal("~/.ssh/key#name", host.IdentityFile);
+        Assert.Contains("serveraliveinterval=30", host.CustomSshOptions);
+        Assert.DoesNotContain("comment", host.CustomSshOptions);
+    }
 }

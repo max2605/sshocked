@@ -108,6 +108,7 @@ public sealed class SshConfigSyncService(IConfigRepository repository, ISshConfi
             finally { _updating = false; }
             _lastHostFingerprint = HostFingerprint(config.Hosts);
             _lastError = null;
+            _pending = false;
             logger.LogInformation("Exported {Count} SSH config host(s), {Changed} changed", result.Exported, result.Changed);
             return result;
         }
