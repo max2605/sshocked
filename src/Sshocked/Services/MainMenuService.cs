@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ISshConfigSyncMenuService sshConfigSyncMenu, ISecretConfigurationUi secretUi, SessionRecordingConfigurationUi recordingUi, ILogger<MainMenuService> logger) : IMainMenuService
+public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ISshConfigSyncMenuService sshConfigSyncMenu, ISecretConfigurationUi secretUi, SessionRecordingConfigurationUi recordingUi, IUiChromeService chrome, IUiSettingsMenuService uiSettings, ILogger<MainMenuService> logger) : IMainMenuService
 {
 
     public async Task Show()
@@ -22,6 +22,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
         {
             var config = configRepository.Load();
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main");
             tableRenderer.RenderServerTable(config);
 
             var menuEntries = BuildMainMenuEntries(config);
@@ -66,6 +67,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
 
             var menuEntries = new List<MenuEntry>
             {
+                new("Display settings", 'V', executeAsync: uiSettings.Show),
                 new("Manage secret providers", 'P', executeAsync: secretUi.Show),
                 new("Session recording", 'O', executeAsync: recordingUi.Show),
                 new("Global connection hooks", 'K', executeAsync: () =>
@@ -111,6 +113,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
         {
             config = configRepository.Load();
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main");
             tableRenderer.RenderServerTable(config);
 
             var menuEntries = new List<MenuEntry>
@@ -132,6 +135,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
         {
             config = configRepository.Load();
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main");
             tableRenderer.RenderServerTable(config);
 
             var menuEntries = new List<MenuEntry>
@@ -163,7 +167,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
                 .Title("Select a [green]group[/] to connect ([grey]clear search for Back[/]):")
                 .PageSize(10)
                 .EnableSearch()
-                .AddChoices(groupNames));
+                .UseConverter(Markup.Escape).AddChoices(groupNames));
 
         if (selectedName == MenuLabels.Back)
         {
@@ -233,7 +237,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
                 .Title("Select a [green]group[/] ([grey]clear search for Back[/]):")
                 .PageSize(10)
                 .EnableSearch()
-                .AddChoices(groupNames));
+                .UseConverter(Markup.Escape).AddChoices(groupNames));
 
         if (selectedName == MenuLabels.Back)
         {
@@ -385,7 +389,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
                 var savedMarker = isSaved ? "[green]\u2713[/] " : "";
                 var capturedContainer = container;
                 menuEntries.Add(new MenuEntry(
-                    $"{savedMarker}{Markup.Escape(container.Name)}  [grey]({container.Image})[/]",
+                    $"{savedMarker}{Markup.Escape(container.Name)}  [grey]({Markup.Escape(container.Image)})[/]",
                     executeAsync: () => ShowScannedContainerActions(host, capturedContainer)));
             }
 
@@ -394,7 +398,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
                 var capturedContainer = container;
                 var displayName = container.Alias ?? container.Name;
                 menuEntries.Add(new MenuEntry(
-                    $"[bold][cyan]*[/] {Markup.Escape(displayName)}[/]  [grey]({container.Image})[/]",
+                    $"[bold][cyan]*[/] {Markup.Escape(displayName)}[/]  [grey]({Markup.Escape(container.Image)})[/]",
                     executeAsync: () => ShowSavedContainerActions(host, capturedContainer)));
             }
 
@@ -540,7 +544,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
         }
 
         groupManagement.Create(name.Trim());
-        AnsiConsole.MarkupLine($"[green]\u2713[/] Group '[cyan]{name.Trim()}[/]' created.");
+        AnsiConsole.MarkupLine($"[green]\u2713[/] Group '[cyan]{Markup.Escape(name.Trim())}[/]' created.");
         consoleHelper.WaitForKey();
     }
 
@@ -559,7 +563,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
             new SelectionPrompt<string>()
                 .Title("Select a [green]group[/] to rename:")
                 .PageSize(10)
-                .AddChoices(groupNames));
+                .UseConverter(Markup.Escape).AddChoices(groupNames));
 
         var group = groups.First(g => g.Name == selectedName);
         var newName = AnsiConsole.Ask<string>($"Enter new name for [cyan]{Markup.Escape(group.Name)}[/] (or leave empty to cancel):");
@@ -591,7 +595,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
             new SelectionPrompt<string>()
                 .Title("Select a [green]group[/] to delete:")
                 .PageSize(10)
-                .AddChoices(groupNames));
+                .UseConverter(Markup.Escape).AddChoices(groupNames));
 
         var group = groups.First(g => g.Name == selectedName);
 

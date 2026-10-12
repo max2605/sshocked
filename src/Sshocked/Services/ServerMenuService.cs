@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers) : IServerMenuService
+public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers, IUiChromeService chrome) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -24,6 +24,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         {
             config = configRepository.Load();
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main", "Servers");
             tableRenderer.RenderServerTable(config);
 
             var host = hostSelector.SelectHost(config.Hosts, "Select a [green]server[/]");
@@ -44,6 +45,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         while (nav.Current == ViewType.ServerDetail && !shouldExit)
         {
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
             RenderServerHeader(host);
             RenderDockerSummary(host);
 

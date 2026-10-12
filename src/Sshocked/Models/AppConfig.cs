@@ -14,4 +14,5 @@ public sealed class AppConfig
     public List<SecretProviderConfig> SecretProviders { get; set; } = [];
     public GlobalHooks GlobalHooks { get; set; } = new();
     public SessionRecordingSettings SessionRecording { get; set; } = new();
+    public UISettings UI { get; set; } = new();
 }

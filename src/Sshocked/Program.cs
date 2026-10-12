@@ -111,6 +111,9 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<IMainMenuService, MainMenuService>();
     services.AddSingleton<ITableRendererService, TableRendererService>();
     services.AddSingleton<IHostSelectorService, HostSelectorService>();
+    services.AddSingleton<IHostReachabilityService, HostReachabilityService>();
+    services.AddSingleton<IUiChromeService, UiChromeService>();
+    services.AddSingleton<IUiSettingsMenuService, UiSettingsMenuService>();
     services.AddSingleton<IConsoleHelperService, ConsoleHelperService>();
     services.AddSingleton<IKeyboardShortcutService, KeyboardShortcutService>();
     services.AddSingleton<IMenuFactory, MenuFactory>();

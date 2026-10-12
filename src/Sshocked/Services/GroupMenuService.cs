@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IRecentConnectionService recents, FileTransferUi transfers) : IGroupMenuService
+public sealed class GroupMenuService(IConfigRepository configRepository, IGroupManagementService groupManagement, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IRecentConnectionService recents, FileTransferUi transfers, IUiChromeService chrome) : IGroupMenuService
 {
     public async Task Browse()
     {
@@ -25,6 +25,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
             groups = groupManagement.GetAll();
             AnsiConsole.Clear();
 
+            chrome.RenderBreadcrumb("Main", "Groups");
             var backLabel = MenuLabels.BackToMainMenu;
             var groupNames = groups.Select(g => g.Name).ToList();
             groupNames.Add(backLabel);
@@ -34,7 +35,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
                     .Title("[bold yellow]Select a Group[/] ([grey]clear search for Back[/]):")
                     .PageSize(10)
                     .EnableSearch()
-                    .AddChoices(groupNames));
+                    .UseConverter(Markup.Escape).AddChoices(groupNames));
 
             if (selectedName == backLabel)
             {
@@ -58,6 +59,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
             var groupContainers = containerService.GetSavedByGroup(config, group.Id);
 
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main", "Groups", group.Name);
             AnsiConsole.MarkupLine($"[bold cyan]Group: {Markup.Escape(group.Name)}[/]");
             AnsiConsole.WriteLine();
 
@@ -112,7 +114,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
     {
         var table = new Table()
             .Border(TableBorder.Rounded)
-            .Title($"[cyan]{groupName}[/]")
+            .Title($"[cyan]{Markup.Escape(groupName)}[/]")
             .AddColumns([
                 new TableColumn("Alias"),
                 new TableColumn("Container"),
@@ -151,7 +153,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
                 .Title("Select a [green]container[/] ([grey]clear search for Back[/]):")
                 .PageSize(10)
                 .EnableSearch()
-                .AddChoices(names));
+                .UseConverter(Markup.Escape).AddChoices(names));
 
         if (selectedName == MenuLabels.Back)
         {

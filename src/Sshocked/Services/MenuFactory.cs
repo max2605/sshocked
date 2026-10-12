@@ -3,10 +3,11 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut) : IMenuFactory
+public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiChromeService chrome) : IMenuFactory
 {
     public async Task<bool> RunMenu(string title, List<MenuEntry> entries)
     {
+        chrome.RenderFooter();
         var choice = keyboardShortcut.ShowMenu(title, entries);
 
         if (choice?.ActionType == MenuActionType.Exit || choice?.ActionType == MenuActionType.Back)

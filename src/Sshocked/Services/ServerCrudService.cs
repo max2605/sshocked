@@ -57,7 +57,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         var groupName = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title("[green]Group[/]:")
-                .AddChoices(groups.Select(g => g.Name).Prepend("(none)")));
+                .UseConverter(Markup.Escape).AddChoices(groups.Select(g => g.Name).Prepend("(none)")));
 
         var tagsInput = AnsiConsole.Prompt(
             new TextPrompt<string>("[green]Tags[/] (comma-separated):")
@@ -175,7 +175,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         var groupName = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title("[green]Group[/]:")
-                .AddChoices(groups.Select(g => g.Name).Prepend("(none)"))
+                .UseConverter(Markup.Escape).AddChoices(groups.Select(g => g.Name).Prepend("(none)"))
                 .DefaultValue(currentGroup?.Name ?? "(none)"));
 
         var tagsInput = AnsiConsole.Prompt(
