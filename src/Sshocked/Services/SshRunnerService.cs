@@ -26,7 +26,7 @@ public sealed class SshRunnerService(IProcessService processService, IRecentConn
                 started = true;
                 if (!await hooks.RunLocalHooks(HookPhase.PostConnect, host, config.GlobalHooks, context))
                     throw new InvalidOperationException("A post-connect hook stopped the connection.");
-            });
+            }, auditCommand: false);
             new ProcessResult(exitCode.Value, "", "").EnsureSuccess("SSH session");
         }
         catch (Exception ex)

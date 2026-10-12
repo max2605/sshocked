@@ -15,7 +15,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
 
     public Task RunAzureBastionSsh(ServerHost host) => RunSsh(host);
 
-    public async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null)
+    public async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null, bool auditCommand = true)
     {
         var native = host.AzureBastion?.ConnectionMode == BastionConnectionMode.Native;
         await using var connection = await PrepareAsync(host, useTunnel: !native, ct);
@@ -31,7 +31,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             var info = CreateSshStartInfo(connection, captureOutput: false, tty: initialCommand != null, initialCommand);
             exit = recorder?.ShouldRecord(host) == true ? await recorder.Record(info, host, ct, onStarted) : (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
         }
-        if (initialCommand != null) RecordCommand(host, initialCommand, exit);
+        if (initialCommand != null && auditCommand) RecordCommand(host, initialCommand, exit);
         logger.LogInformation("SSH session to {Alias} exited with code {ExitCode}", host.Alias, exit);
         return exit;
     }
