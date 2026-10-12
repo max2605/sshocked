@@ -39,8 +39,9 @@ Unix; Windows uses the user's existing profile-directory permissions.
 Completed recordings are gzip-compressed by default. Replay and export automatically
 decompress them. Retention defaults to 30 days and 1000 MiB; old completed recordings
 are removed first. Cleanup runs before and after a recording and when listing sessions.
-Active recordings are preserved, so the size setting is a cleanup target rather than
-a live hard disk quota. A retention value of `0` disables age cleanup; a null size
+Automatic cleanup preserves all incomplete recordings, including those owned by other
+sshocked processes. Incomplete recordings left by a crash require explicit deletion.
+The size setting is a cleanup target rather than a live hard disk quota. A retention value of `0` disables age cleanup; a null size
 limit disables size cleanup.
 
 Recording paths must stay within the sessions directory. IDs accept an unambiguous

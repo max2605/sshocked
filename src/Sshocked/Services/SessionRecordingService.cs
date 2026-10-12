@@ -41,6 +41,7 @@ public sealed class SessionRecordingService(IConfigRepository configRepository, 
         System.Console.Error.WriteLine($"Recording output only: {recording.Metadata.Id}. Input is not captured; terminal/TTY behavior may differ.");
         Process? process = null;
         Task? captured = null;
+        Exception? operationFailure = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -65,8 +66,9 @@ public sealed class SessionRecordingService(IConfigRepository configRepository, 
             exitCode = process.ExitCode;
             return exitCode.Value;
         }
-        catch
+        catch (Exception exception)
         {
+            operationFailure = exception;
             if (process is not null)
             {
                 try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
@@ -83,8 +85,15 @@ public sealed class SessionRecordingService(IConfigRepository configRepository, 
         finally
         {
             process?.Dispose();
-            recording.Complete(exitCode, settings.Compress);
-            repository.ApplyRetention(settings);
+            try
+            {
+                recording.Complete(exitCode, settings.Compress);
+                repository.ApplyRetention(settings);
+            }
+            catch (Exception exception) when (operationFailure is not null)
+            {
+                logger.LogWarning("Could not finalize interrupted recording {SessionId}: {Error}", recording.Metadata.Id, exception.Message);
+            }
         }
     }
 

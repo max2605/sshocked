@@ -140,10 +140,10 @@ public sealed class SessionRepository
         }
     }
 
-    public int DeleteOlderThan(DateTimeOffset cutoff)
+    public int DeleteOlderThan(DateTimeOffset cutoff, bool completedOnly = false)
     {
         var count = 0;
-        foreach (var metadata in List(int.MaxValue).Where(session => session.StartedAt < cutoff))
+        foreach (var metadata in List(int.MaxValue).Where(session => session.StartedAt < cutoff && (!completedOnly || session.EndedAt is not null)))
         {
             lock (gate) if (active.Contains(metadata.Id)) continue;
             Delete(metadata);
@@ -155,10 +155,12 @@ public sealed class SessionRepository
     public void ApplyRetention(SessionRecordingSettings settings)
     {
         if (settings.RetentionDays is < 0 or > 365000) throw new ArgumentException("Session retention days must be between 0 and 365000.");
-        if (settings.RetentionDays > 0) DeleteOlderThan(DateTimeOffset.UtcNow.AddDays(-settings.RetentionDays));
+        if (settings.RetentionDays > 0) DeleteOlderThan(DateTimeOffset.UtcNow.AddDays(-settings.RetentionDays), completedOnly: true);
         if (settings.MaxTotalSizeMb is not { } megabytes) return;
         if (megabytes < 1 || megabytes > long.MaxValue / (1024 * 1024)) throw new ArgumentException("The recording size limit must be positive.");
-        var sessions = List(int.MaxValue).OrderBy(session => session.StartedAt).ToList();
+        // An incomplete recording may belong to another sshocked process, whose active
+        // set is not visible here. Automatic cleanup must preserve all incomplete casts.
+        var sessions = List(int.MaxValue).Where(session => session.EndedAt is not null).OrderBy(session => session.StartedAt).ToList();
         var total = sessions.Sum(session => new FileInfo(ResolvePath(session.RelativeFilePath)).Length);
         var limit = megabytes * 1024 * 1024;
         foreach (var metadata in sessions)
@@ -181,20 +183,26 @@ public sealed class SessionRepository
         {
             var compressedPath = path + ".gz";
             var originalRelativePath = metadata.RelativeFilePath;
+            var createdCompressedFile = false;
             try
             {
                 using (var input = File.OpenRead(path))
-                using (var output = CreatePrivateFile(compressedPath))
-                using (var gzip = new GZipStream(output, CompressionLevel.Optimal)) input.CopyTo(gzip);
+                {
+                    using var output = CreatePrivateFile(compressedPath);
+                    createdCompressedFile = true;
+                    using var gzip = new GZipStream(output, CompressionLevel.Optimal);
+                    input.CopyTo(gzip);
+                }
                 metadata.Compressed = true;
                 metadata.RelativeFilePath += ".gz";
+                metadata.FileSize = new FileInfo(compressedPath).Length;
                 Save(metadata);
             }
             catch
             {
                 metadata.Compressed = false;
                 metadata.RelativeFilePath = originalRelativePath;
-                File.Delete(compressedPath);
+                if (createdCompressedFile) File.Delete(compressedPath);
                 throw;
             }
             // Metadata already points at the complete compressed file. An undeletable original
@@ -202,10 +210,12 @@ public sealed class SessionRepository
             try { File.Delete(path); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
-            path = compressedPath;
         }
-        metadata.FileSize = new FileInfo(path).Length;
-        Save(metadata);
+        else
+        {
+            metadata.FileSize = new FileInfo(path).Length;
+            Save(metadata);
+        }
         lock (gate) active.Remove(metadata.Id);
     }
 

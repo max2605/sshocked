@@ -123,6 +123,22 @@ public sealed class SessionRecordingTests : IDisposable
         Assert.Equal("recent", Assert.Single(repository.List()).HostAlias);
     }
 
+    [Fact]
+    public void RetentionPreservesIncompleteRecordingsOwnedByAnotherRepository()
+    {
+        var owner = Repository();
+        using var active = owner.Create(Host("external-active"));
+        active.Append(new string('x', 2 * 1024 * 1024));
+        var observer = Repository();
+        observer.ApplyRetention(new() { RetentionDays = 0, MaxTotalSizeMb = 1 });
+        Assert.Single(observer.List());
+        Assert.True(File.Exists(observer.ResolvePath(active.Metadata.RelativeFilePath)));
+        active.Append("still available");
+        active.Complete(0);
+        observer.ApplyRetention(new() { RetentionDays = 0, MaxTotalSizeMb = 1 });
+        Assert.Empty(observer.List());
+    }
+
     [Theory]
     [InlineData("../outside.cast")]
     [InlineData("../../outside.cast")]
@@ -215,6 +231,24 @@ public sealed class SessionRecordingTests : IDisposable
         Assert.False(deadline.IsCancellationRequested);
         Assert.Throws<ArgumentException>(() => Process.GetProcessById(runner.ProcessId));
         Assert.NotNull(Assert.Single(repository.List()).EndedAt);
+    }
+
+    [Fact]
+    public async Task FinalizationFailurePreservesPrimaryFailureAndExistingGzipFile()
+    {
+        var repository = Repository();
+        var service = new SessionRecordingService(new Config(), new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
+        string? existingGzip = null;
+        var info = Child("ping -n 30 127.0.0.1 > nul", "sleep 30");
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.Record(info, Host(), onStarted: () =>
+        {
+            var active = Assert.Single(repository.List());
+            existingGzip = repository.ResolvePath(active.RelativeFilePath) + ".gz";
+            File.WriteAllText(existingGzip, "existing file belongs to caller");
+            throw new InvalidOperationException("primary setup failure");
+        }));
+        Assert.Equal("primary setup failure", exception.Message);
+        Assert.Equal("existing file belongs to caller", File.ReadAllText(existingGzip!));
     }
 
     [Fact]
