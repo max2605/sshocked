@@ -22,7 +22,8 @@ dotnet restore
 ```
 Sshocked.slnx          -- Solution file (new .slnx XML format)
 src/Sshocked/          -- Console app project
-  Program.cs           -- Entry point with DI bootstrapping
+  Program.cs           -- Application entry point
+  ServiceRegistration.cs -- DI service registrations
   Sshocked.csproj      -- Project file targeting net10.0
   Models/              -- Domain models (AppConfig, ServerHost, ServerGroup)
   Interfaces/          -- Core interfaces (IConfigRepository, ISshConfigImporter, IAppRunner)
@@ -33,7 +34,7 @@ The solution uses the `.slnx` format (not the legacy `.sln`). The `.vscode/setti
 
 ## Architecture
 
-- **DI-first bootstrapping**: `Program.cs` uses `Microsoft.Extensions.DependencyInjection` to register services and resolve `IAppRunner` as the entry point.
+- **DI-first bootstrapping**: `ServiceRegistration` configures `Microsoft.Extensions.DependencyInjection`; `Program` resolves `IAppRunner` as the entry point.
 - **IConfigRepository**: Persists `AppConfig` (groups, hosts, settings) to a local JSON file. On Windows the path is `%APPDATA%\sshocked\appconfig.json`; on Linux/macOS it's `~/.config/sshocked/appconfig.json`. The file is auto-created on first run.
 - **ISshConfigImporter**: Parses the OpenSSH config file (not yet implemented).
 - **IAppRunner**: Main application workflow, resolved from DI.
@@ -47,7 +48,7 @@ See skills/ folder for the full list of skills and how to add new ones.
 
 - **Nullable reference types** are enabled (`<Nullable>enable</Nullable>`)
 - **Implicit usings** are enabled (`<ImplicitUsings>enable</ImplicitUsings>`)
-- The project is a top-level statement console app
+- The console entry point is a sealed `Program` class with a static `Main` method.
 - **JSON serialization** uses `System.Text.Json` source generators (`JsonSerializerContext`) for AOT/trimming compatibility
 - **File-scoped namespaces** are used throughout
 - **Primary constructors** are preferred for DI-based services

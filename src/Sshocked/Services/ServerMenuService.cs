@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Sshocked.Interfaces;
 using Sshocked.Models;
@@ -34,17 +33,17 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                 return;
             }
 
-            await ShowServerActions(config, host);
+            await ShowServerActions(host);
         }
     }
 
-    public async Task ShowServerActions(AppConfig config, ServerHost host)
+    public async Task ShowServerActions(ServerHost host)
     {
         bool shouldExit = false;
 
         while (nav.Current == ViewType.ServerDetail && !shouldExit)
         {
-            config = configRepository.Load();
+            var config = configRepository.Load();
             var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
             if (currentHost is null) return;
             host = currentHost;
@@ -100,14 +99,14 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         }
     }
 
-    private void RenderServerHeader(ServerHost host)
+    private static void RenderServerHeader(ServerHost host)
     {
         AnsiConsole.MarkupLine($"[bold cyan]Server: {Markup.Escape(host.Alias)}[/]");
         AnsiConsole.MarkupLine($"  Host: {Markup.Escape(host.HostName)}  User: {Markup.Escape(host.User)}  Port: {host.Port}");
         AnsiConsole.WriteLine();
     }
 
-    private void RenderDockerSummary(ServerHost host)
+    private static void RenderDockerSummary(ServerHost host)
     {
         var dockerInfo = host.DockerInfo;
         if (dockerInfo is null)
