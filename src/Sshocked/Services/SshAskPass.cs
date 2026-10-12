@@ -8,9 +8,8 @@ public static class SshAskPass
     private const string RequirementEnvironment = "SSH_ASKPASS_REQUIRE";
     private const string DisplayEnvironment = "DISPLAY";
 
-    public static void Configure(IDictionary<string, string?> variables, string password)
+    internal static void Configure(IDictionary<string, string?> variables, string password, string? executable)
     {
-        var executable = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executable) || Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Password secrets require the sshocked executable/apphost. Launch ssk directly instead of dotnet ssk.dll.");
         variables[ExecutableEnvironment] = executable;

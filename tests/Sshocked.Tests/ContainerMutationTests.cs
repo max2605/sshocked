@@ -31,6 +31,8 @@ public sealed class ContainerMutationTests
                 other.Update(config => config.Hosts[0].SavedContainers[0].Image = "new-image-from-another-window");
             });
             var inner = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(TextWriter.Null), Interactive = InteractionSupport.Yes, Ansi = AnsiSupport.Yes });
+            // Spectre's CI detection overrides settings; this fixture supplies interactive input.
+            inner.Profile.Capabilities.Interactive = true;
             AnsiConsole.Console = new ContainerMutationTestsPromptConsole(inner, input);
             var groups = new GroupManagementService(repository, NullLogger<GroupManagementService>.Instance);
             new ContainerService(repository, groups, new ContainerMutationTestsConsoleHelper(), NullLogger<ContainerService>.Instance).Edit(host, saved);

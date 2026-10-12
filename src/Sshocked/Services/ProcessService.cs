@@ -5,9 +5,9 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null, ISessionRecordingService? recorder = null) : IProcessService
+public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null, ISessionRecordingService? recorder = null, string? applicationExecutable = null) : IProcessService
 {
-    private readonly SshConnectionPreparer connectionPreparer = new(bastionService, secrets);
+    private readonly SshConnectionPreparer connectionPreparer = new(bastionService, secrets, applicationExecutable);
 
     public async Task RunSsh(ServerHost host)
     {

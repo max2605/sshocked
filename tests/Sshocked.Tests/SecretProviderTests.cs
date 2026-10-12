@@ -151,6 +151,7 @@ public sealed class SecretProviderTests
         factory.Provider.Value = password ? "private-login-value" : "-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----";
         var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
         var bastion = new SecretProviderTestsCredentialBastion(password ? BastionAuthType.Password : BastionAuthType.SshKey);
+        var applicationExecutable = Path.Combine(Path.GetTempPath(), "ssk");
         var runner = new SecretProviderTestsInspectRunner(info =>
         {
             Assert.Equal("ssh", info.FileName);
@@ -158,11 +159,17 @@ public sealed class SecretProviderTests
             Assert.Contains("42522", info.ArgumentList);
             Assert.Contains("HostKeyAlias=bastion:/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm", info.ArgumentList);
             Assert.DoesNotContain(factory.Provider.Value, string.Join(' ', info.ArgumentList));
-            if (password) Assert.Equal(factory.Provider.Value, info.Environment["SSHOCKED_ASKPASS_PASSWORD"]);
+            if (password)
+            {
+                Assert.Equal(factory.Provider.Value, info.Environment[SshAskPass.PasswordEnvironment]);
+                Assert.Equal(applicationExecutable, info.Environment["SSH_ASKPASS"]);
+                Assert.Equal("force", info.Environment["SSH_ASKPASS_REQUIRE"]);
+                Assert.Equal("1", info.Environment[SshAskPass.HelperEnvironment]);
+            }
             else Assert.True(File.Exists(info.ArgumentList[info.ArgumentList.IndexOf("-i") + 1]));
             return new ProcessResult(37, "partial", "failed");
         });
-        var process = new ProcessService(NullLogger<ProcessService>.Instance, runner, bastion, registry);
+        var process = new ProcessService(NullLogger<ProcessService>.Instance, runner, bastion, registry, applicationExecutable: applicationExecutable);
         var host = new ServerHost
         {
             User = "user",

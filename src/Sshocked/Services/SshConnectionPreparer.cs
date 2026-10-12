@@ -3,7 +3,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-internal sealed class SshConnectionPreparer(IBastionService bastionService, ISecretProviderRegistry secrets)
+internal sealed class SshConnectionPreparer(IBastionService bastionService, ISecretProviderRegistry secrets, string? applicationExecutable = null)
 {
     public async Task<ISshConnectionLease> Prepare(ServerHost host, bool useTunnel, CancellationToken ct)
     {
@@ -36,11 +36,11 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
         if (host.PasswordSecretRef != null)
         {
             if (host.PasswordSecretRef.SecretType != SecretType.Password) throw new ArgumentException("SSH password reference must use Password.");
-            SshAskPass.Configure(lease.Variables, await ResolveValue(host.PasswordSecretRef, ct));
+            SshAskPass.Configure(lease.Variables, await ResolveValue(host.PasswordSecretRef, ct), applicationExecutable ?? Environment.ProcessPath);
             prepared.AuthType = AuthType.Password;
             if (prepared.AzureBastion != null) prepared.AzureBastion.AuthType = BastionAuthType.Password;
         }
-        else if (!string.IsNullOrEmpty(host.SshPassword)) SshAskPass.Configure(lease.Variables, host.SshPassword);
+        else if (!string.IsNullOrEmpty(host.SshPassword)) SshAskPass.Configure(lease.Variables, host.SshPassword, applicationExecutable ?? Environment.ProcessPath);
     }
 
     private async Task PrepareTunnel(SshConnectionLease lease, CancellationToken ct)
