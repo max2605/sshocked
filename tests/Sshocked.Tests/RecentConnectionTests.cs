@@ -9,6 +9,28 @@ public sealed class RecentConnectionTests : IDisposable
     private JsonConfigRepository CreateRepository() => new(Path.Combine(_directory, "appconfig.json"));
 
     [Fact]
+    public void MultipleWindowRepositoriesRetainAllRecentCountsAndFavoriteChanges()
+    {
+        var first = new ServerHost { Id = "one", Alias = "one" };
+        var second = new ServerHost { Id = "two", Alias = "two" };
+        var repositories = Enumerable.Range(0, 4).Select(_ => CreateRepository()).ToArray();
+        repositories[0].Save(new AppConfig { Hosts = [first, second] });
+        var services = repositories.Select(repository => new RecentConnectionService(repository)).ToArray();
+        Parallel.For(0, 100, i => services[i % services.Length].Record(i % 2 == 0 ? first : second));
+        // Favorite updates use a different snapshot/instance while history continues to change.
+        Parallel.For(0, 51, i =>
+        {
+            services[i % services.Length].ToggleFavorite(first);
+            services[(i + 1) % services.Length].Record(second);
+        });
+        var loaded = CreateRepository().Load();
+        Assert.Equal(2, loaded.RecentConnections.Count);
+        Assert.Equal(50, loaded.RecentConnections.Single(r => r.HostId == "one").ConnectionCount);
+        Assert.Equal(101, loaded.RecentConnections.Single(r => r.HostId == "two").ConnectionCount);
+        Assert.True(loaded.Hosts.Single(h => h.Id == "one").IsFavorite);
+    }
+
+    [Fact]
     public void FavoritesAndRecentsSurviveReloadAndIgnoreDeletedTargets()
     {
         var repository = CreateRepository();

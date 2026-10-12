@@ -73,27 +73,24 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
                 new("Global connection hooks", 'K', executeAsync: () =>
                 {
                     config.GlobalHooks = HookConfigurationUi.ConfigureGlobal(config.GlobalHooks);
-                    configRepository.Save(config);
+                    configRepository.Update(current => current.GlobalHooks = config.GlobalHooks);
                     return Task.CompletedTask;
                 }),
                 new("Toggle recent connection tracking", 'H', executeAsync: () =>
                 {
-                    config.TrackRecentConnections = !config.TrackRecentConnections;
-                    configRepository.Save(config);
+                    configRepository.Update(current => current.TrackRecentConnections = !current.TrackRecentConnections);
                     return Task.CompletedTask;
                 }),
                 new("Default to Multi-Tab (parallel)", 'M', executeAsync: () =>
                 {
-                    config.DefaultConnectionStrategy = ConnectionStrategy.MultiTab;
-                    configRepository.Save(config);
+                    configRepository.Update(current => current.DefaultConnectionStrategy = ConnectionStrategy.MultiTab);
                     AnsiConsole.MarkupLine("[green]✓ Default strategy set to Multi-Tab[/]");
                     consoleHelper.WaitForKey();
                     return Task.CompletedTask;
                 }),
                 new("Default to Sequential (one after another)", 'Q', executeAsync: () =>
                 {
-                    config.DefaultConnectionStrategy = ConnectionStrategy.Sequential;
-                    configRepository.Save(config);
+                    configRepository.Update(current => current.DefaultConnectionStrategy = ConnectionStrategy.Sequential);
                     AnsiConsole.MarkupLine("[green]✓ Default strategy set to Sequential[/]");
                     consoleHelper.WaitForKey();
                     return Task.CompletedTask;

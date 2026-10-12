@@ -121,8 +121,12 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         if (authType == "From Key Vault" || AnsiConsole.Confirm("Configure secret references for this host?", false)) secretUi.ConfigureHost(host);
         if (AnsiConsole.Confirm("Configure connection hooks?", false)) host.Hooks = HookConfigurationUi.Configure(host.Hooks);
         host.RecordSession = SessionRecordingConfigurationUi.ConfigureHost(null);
-        config.Hosts.Add(host);
-        configRepository.Save(config);
+        configRepository.Update(current =>
+        {
+            if (current.Hosts.Any(h => h.Alias.Equals(host.Alias, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("This alias was added in another window. Choose another alias.");
+            current.Hosts.Add(host);
+        });
         logger.LogInformation("Added host '{Alias}' ({HostName})", host.Alias, host.HostName);
 
         return host;
@@ -255,7 +259,28 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
 
         if (AnsiConsole.Confirm("Configure connection hooks?", existing.Hooks is not null)) existing.Hooks = HookConfigurationUi.Configure(existing.Hooks);
         existing.RecordSession = SessionRecordingConfigurationUi.ConfigureHost(existing.RecordSession);
-        configRepository.Save(config);
+        configRepository.Update(current =>
+        {
+            var target = current.Hosts.FirstOrDefault(h => h.Id == existing.Id)
+                ?? throw new InvalidOperationException("This host was deleted in another window.");
+            if (current.Hosts.Any(h => h.Id != target.Id && h.Alias.Equals(existing.Alias, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("This alias was added in another window. Choose another alias.");
+            target.Alias = existing.Alias;
+            target.HostName = existing.HostName;
+            target.User = existing.User;
+            target.Port = existing.Port;
+            target.GroupId = existing.GroupId;
+            target.Tags = existing.Tags;
+            target.AuthType = existing.AuthType;
+            target.IdentityFile = existing.IdentityFile;
+            target.CustomSshOptions = existing.CustomSshOptions;
+            target.AzureBastion = existing.AzureBastion;
+            target.KeySecretRef = existing.KeySecretRef;
+            target.PasswordSecretRef = existing.PasswordSecretRef;
+            target.SudoPasswordSecretRef = existing.SudoPasswordSecretRef;
+            target.Hooks = existing.Hooks;
+            target.RecordSession = existing.RecordSession;
+        });
         logger.LogInformation("Edited host '{Alias}'", existing.Alias);
     }
 
@@ -266,9 +291,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
 
         if (!confirmed) return false;
 
-        var config = configRepository.Load();
-        config.Hosts.RemoveAll(h => h.Id == host.Id);
-        configRepository.Save(config);
+        configRepository.Update(config => config.Hosts.RemoveAll(h => h.Id == host.Id));
         logger.LogInformation("Deleted host '{Alias}'", host.Alias);
 
         return true;

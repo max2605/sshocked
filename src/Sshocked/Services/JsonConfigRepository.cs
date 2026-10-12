@@ -20,7 +20,7 @@ public sealed class JsonConfigRepository : IConfigRepository
 
     public AppConfig Load()
     {
-        lock (_gate) return LoadCore();
+        return WithConfigLock(LoadCore);
     }
 
     private AppConfig LoadCore()
@@ -39,19 +39,31 @@ public sealed class JsonConfigRepository : IConfigRepository
 
     public void Save(AppConfig config)
     {
-        lock (_gate) SaveCore(config);
+        WithConfigLock(() => { SaveCore(config); return true; });
         Saved?.Invoke(this, EventArgs.Empty);
     }
 
     public void Update(Action<AppConfig> update)
     {
-        lock (_gate)
+        WithConfigLock(() =>
         {
             var config = LoadCore();
             update(config);
             SaveCore(config);
-        }
+            return true;
+        });
         Saved?.Invoke(this, EventArgs.Empty);
+    }
+
+    private T WithConfigLock<T>(Func<T> operation)
+    {
+        lock (_gate)
+        {
+            // Child terminal sessions use separate repository instances and processes.
+            // Lock the complete read-modify-write transaction, not only the replacement.
+            using var fileLock = CrossProcessFileLock.Acquire(_filePath);
+            return operation();
+        }
     }
 
     private void SaveCore(AppConfig config)

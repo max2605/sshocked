@@ -7,35 +7,37 @@ public sealed class RecentConnectionService(IConfigRepository repository) : IRec
 {
     public void Record(ServerHost host, ContainerModel? container = null)
     {
-        var config = repository.Load();
-        if (!config.TrackRecentConnections || !config.Hosts.Any(h => h.Id == host.Id)) return;
-        var containerId = container?.Id ?? container?.ContainerId;
-        var entry = config.RecentConnections.FirstOrDefault(r => r.HostId == host.Id && r.ContainerId == containerId);
-        if (entry is null)
+        repository.Update(config =>
         {
-            entry = new RecentConnection { HostId = host.Id, ContainerId = containerId };
-            config.RecentConnections.Add(entry);
-        }
-        entry.LastConnectedAt = DateTimeOffset.UtcNow;
-        entry.ConnectionCount++;
-        config.RecentConnections = config.RecentConnections.OrderByDescending(r => r.LastConnectedAt)
-            .Take(Math.Clamp(config.MaxRecentConnections, 1, 1000)).ToList();
-        repository.Save(config);
+            if (!config.TrackRecentConnections || !config.Hosts.Any(h => h.Id == host.Id)) return;
+            var containerId = container?.Id ?? container?.ContainerId;
+            var entry = config.RecentConnections.FirstOrDefault(r => r.HostId == host.Id && r.ContainerId == containerId);
+            if (entry is null)
+            {
+                entry = new RecentConnection { HostId = host.Id, ContainerId = containerId };
+                config.RecentConnections.Add(entry);
+            }
+            entry.LastConnectedAt = DateTimeOffset.UtcNow;
+            entry.ConnectionCount++;
+            config.RecentConnections = config.RecentConnections.OrderByDescending(r => r.LastConnectedAt)
+                .Take(Math.Clamp(config.MaxRecentConnections, 1, 1000)).ToList();
+        });
     }
 
     public void ToggleFavorite(ServerHost host, ContainerModel? container = null)
     {
-        var config = repository.Load();
-        var saved = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
-        if (saved is null) return;
-        if (container is null) host.IsFavorite = saved.IsFavorite = !saved.IsFavorite;
-        else
+        repository.Update(config =>
         {
-            var savedContainer = saved.SavedContainers.FirstOrDefault(c => (c.Id ?? c.ContainerId) == (container.Id ?? container.ContainerId));
-            if (savedContainer is null) return;
-            container.IsFavorite = savedContainer.IsFavorite = !savedContainer.IsFavorite;
-        }
-        repository.Save(config);
+            var saved = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+            if (saved is null) return;
+            if (container is null) host.IsFavorite = saved.IsFavorite = !saved.IsFavorite;
+            else
+            {
+                var savedContainer = saved.SavedContainers.FirstOrDefault(c => (c.Id ?? c.ContainerId) == (container.Id ?? container.ContainerId));
+                if (savedContainer is null) return;
+                container.IsFavorite = savedContainer.IsFavorite = !savedContainer.IsFavorite;
+            }
+        });
     }
 
     public IReadOnlyList<ConnectionTarget> Favorites()
@@ -64,15 +66,11 @@ public sealed class RecentConnectionService(IConfigRepository repository) : IRec
 
     public void Clear()
     {
-        var config = repository.Load();
-        config.RecentConnections.Clear();
-        repository.Save(config);
+        repository.Update(config => config.RecentConnections.Clear());
     }
 
     public void Remove(string hostId, string? containerId = null)
     {
-        var config = repository.Load();
-        config.RecentConnections.RemoveAll(r => r.HostId == hostId && r.ContainerId == containerId);
-        repository.Save(config);
+        repository.Update(config => config.RecentConnections.RemoveAll(r => r.HostId == hostId && r.ContainerId == containerId));
     }
 }
