@@ -67,6 +67,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
         if (group is null)
         {
+            Environment.ExitCode = 1;
             Console.WriteLine($"Error: Group '{groupName}' not found.");
             Console.WriteLine("Run 'ssk --list' to see available groups.");
             return true;
@@ -112,6 +113,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
         if (hasErrors)
         {
+            Environment.ExitCode = 1;
             Console.WriteLine("Completed with errors on some servers.");
         }
 
@@ -166,6 +168,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         }
 
         Console.WriteLine($"Error: No server or group found matching '{target}'.");
+        Environment.ExitCode = 1;
         Console.WriteLine("Run 'ssk --help' for usage information.");
         return true;
     }

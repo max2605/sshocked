@@ -84,7 +84,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
 
             if (groupHosts.Count > 0)
             {
-                menuEntries.Add(new MenuEntry("Select server...", 'S', executeAsync: () => { SelectServerFromGroup(config, group); return Task.CompletedTask; }));
+                menuEntries.Add(new MenuEntry("Select server...", 'S', executeAsync: () => SelectServerFromGroup(config, group)));
                 menuEntries.Add(new MenuEntry("Upload to all servers", 'U', executeAsync: () => transfers.UploadGroup(groupHosts)));
                 menuEntries.Add(new MenuEntry("Download from all servers", 'O', executeAsync: () => transfers.DownloadGroup(groupHosts)));
                 menuEntries.Add(new MenuEntry("Connect all servers", 'C', executeAsync: () => ConnectAllServers(groupHosts)));
@@ -228,7 +228,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
         }
     }
 
-    private void SelectServerFromGroup(AppConfig config, ServerGroup? groupFilter)
+    private async Task SelectServerFromGroup(AppConfig config, ServerGroup? groupFilter)
     {
         var hosts = groupFilter is not null
             ? config.Hosts.Where(h => h.GroupId == groupFilter.Id).ToList()
@@ -247,7 +247,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
             return;
         }
 
-        serverMenu.ShowServerActions(config, host);
+        await serverMenu.ShowServerActions(config, host);
     }
 
     private async Task RunCommandOnServers(List<ServerHost> hosts)
