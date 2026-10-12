@@ -9,4 +9,5 @@ public sealed class AppConfig
     public bool TrackRecentConnections { get; set; } = true;
     public int MaxRecentConnections { get; set; } = 50;
     public List<RecentConnection> RecentConnections { get; set; } = [];
+    public AuditSettings Audit { get; set; } = new();
 }

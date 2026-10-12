@@ -12,6 +12,8 @@ public sealed class ArgumentParserService : IArgumentParserService
         }
 
         var first = args[0].ToLowerInvariant();
+        if (first is "history" or "audit")
+            return new ParseResult { ManagementCommand = first, CommandArguments = args[1..] };
 
         if (first is "--help" or "-h")
         {

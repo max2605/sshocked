@@ -4,11 +4,18 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, ILogger<CliDispatcherService> logger) : ICliDispatcherService
+public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger) : ICliDispatcherService
 {
 
     public async Task<bool> Dispatch(ParseResult parseResult)
     {
+        if (parseResult.ManagementCommand is { } command)
+        {
+            var handler = handlers.FirstOrDefault(h => h.Handles(command))
+                ?? throw new ArgumentException($"Unknown command '{command}'.");
+            await handler.Execute(command, parseResult.CommandArguments);
+            return true;
+        }
         if (parseResult.ShowHelp)
         {
             PrintHelp();
@@ -165,6 +172,8 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         Console.WriteLine("  ssk --list, -l             List all configured servers and groups");
         Console.WriteLine("  ssk --help, -h             Show this help message");
         Console.WriteLine("  ssk --version, -v          Show version information");
+        Console.WriteLine("  ssk history [options]     Query audit events; --output json|jsonl|csv");
+        Console.WriteLine("  ssk audit status|enable|disable|settings  Configure audit logging");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  ssk prod-db-01             Connect to server 'prod-db-01'");

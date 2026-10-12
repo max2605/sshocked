@@ -18,5 +18,7 @@ public sealed record ParseResult
 
     public string? Command { get; init; }
 
-    public bool IsInteractive => !HasPositionalArg && !ShowHelp && !ShowVersion && !ShowList && !HasGroupCommand;
+    public string? ManagementCommand { get; init; }
+    public string[] CommandArguments { get; init; } = [];
+    public bool IsInteractive => !HasPositionalArg && !ShowHelp && !ShowVersion && !ShowList && !HasGroupCommand && ManagementCommand is null;
 }

@@ -4,6 +4,8 @@ namespace Sshocked.Models;
 
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(RecentConnection))]
+[JsonSerializable(typeof(AuditEntry))]
+[JsonSerializable(typeof(List<AuditEntry>))]
 [JsonSerializable(typeof(ServerGroup))]
 [JsonSerializable(typeof(ServerHost))]
 [JsonSerializable(typeof(AuthType))]
