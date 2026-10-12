@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerCrudService(IConfigRepository configRepository, IGroupManagementService groupManagement, ILogger<ServerCrudService> logger) : IServerCrudService
+public sealed class ServerCrudService(IConfigRepository configRepository, IGroupManagementService groupManagement, ISshKeyPickerService keyPicker, ILogger<ServerCrudService> logger) : IServerCrudService
 {
 
     public ServerHost? Add()
@@ -76,9 +76,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         string? identityFile = null;
         if (authType == "SSH Key (Default)")
         {
-            identityFile = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Identity File[/] (optional, e.g. ~/.ssh/id_ed25519):")
-                    .AllowEmpty());
+            identityFile = keyPicker.Pick();
         }
 
         string? customSshOptions = null;
@@ -199,10 +197,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         string? identityFile = existing.IdentityFile;
         if (authType == "SSH Key (Default)")
         {
-            identityFile = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Identity File[/] (optional, e.g. ~/.ssh/id_ed25519):")
-                    .DefaultValue(existing.IdentityFile ?? string.Empty)
-                    .AllowEmpty());
+            identityFile = keyPicker.Pick(existing.IdentityFile);
         }
 
         string? customSshOptions = existing.CustomSshOptions;

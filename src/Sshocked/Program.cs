@@ -67,6 +67,8 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<IRecentConnectionService, RecentConnectionService>();
     services.AddSingleton<IQuickAccessMenuService, QuickAccessMenuService>();
     services.AddSingleton<ISshConfigImporter, SshConfigImporter>();
+    services.AddSingleton<ISshKeyDiscoveryService, SshKeyDiscoveryService>();
+    services.AddSingleton<ISshKeyPickerService, SshKeyPickerService>();
     services.AddSingleton<IConsoleWriterService, ConsoleWriterService>();
     services.AddSingleton<IGroupManagementService, GroupManagementService>();
     services.AddSingleton<IServerCrudService, ServerCrudService>();
