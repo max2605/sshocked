@@ -11,4 +11,5 @@ public sealed class AppConfig
     public List<RecentConnection> RecentConnections { get; set; } = [];
     public AuditSettings Audit { get; set; } = new();
     public SshConfigSyncSettings SshConfigSync { get; set; } = new();
+    public List<SecretProviderConfig> SecretProviders { get; set; } = [];
 }

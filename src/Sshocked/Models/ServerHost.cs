@@ -19,6 +19,9 @@ public sealed class ServerHost
     public bool IsFavorite { get; set; }
     public string? ProxyJump { get; set; }
     public AzureBastionConfig? AzureBastion { get; set; }
+    public SecretRef? KeySecretRef { get; set; }
+    public SecretRef? PasswordSecretRef { get; set; }
+    public SecretRef? SudoPasswordSecretRef { get; set; }
 
     [JsonIgnore]
     public bool UsesAzureBastion => AzureBastion is not null;

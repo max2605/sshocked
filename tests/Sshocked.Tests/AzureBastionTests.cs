@@ -82,10 +82,17 @@ public sealed class AzureBastionTests
         Assert.Equal(new[] { "-i", @"C:\Users\test\my key", "-o", "ProxyCommand=ssh -W %h:%p jump" },
             SshArguments.Tokenize("-i \"C:\\Users\\test\\my key\" -o 'ProxyCommand=ssh -W %h:%p jump'"));
         Assert.Throws<ArgumentException>(() => SshArguments.Tokenize("-i 'unterminated"));
+        Assert.Equal(new[] { "-F", @"C:\ssh\config" }, SshArguments.Tokenize("-F \"C:\\\\ssh\\\\config\""));
         var info = SshArguments.Build(new ServerHost { User = "user", HostName = "example", IdentityFile = "key with spaces" }, command: "echo '$HOME' ; exit 4");
         Assert.Equal("echo '$HOME' ; exit 4", info[^1]);
         Assert.Equal("user@example", info[^2]);
         Assert.Equal("--", info[^3]);
+        var withOptions = SshArguments.Build(new ServerHost { User = "user", HostName = "example", IdentityFile = "key", CustomSshOptions = "-o ServerAliveInterval=60" });
+        Assert.Contains("ServerAliveInterval=60", withOptions);
+        Assert.Contains("-i", withOptions);
+        Assert.Throws<ArgumentException>(() => SshArguments.ValidateTunnelOptions(["-o", "ProxyCommand=nc elsewhere 22"]));
+        Assert.Throws<ArgumentException>(() => SshArguments.ValidateTunnelOptions(["-p", "443"]));
+        SshArguments.ValidateTunnelOptions(["-o", "ServerAliveInterval=60", "-v"]);
     }
 
     [Fact]

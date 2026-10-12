@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, IAuditService? audit = null) : IProcessService
+public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null) : IProcessService
 {
     public async Task RunSsh(ServerHost host)
     {
@@ -46,23 +46,32 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
     {
         // AAD requires Azure CLI's short-lived SSH certificate; a TCP tunnel cannot
         // authenticate an AAD principal on its own.
-        var aad = host.AzureBastion?.AuthType == BastionAuthType.Aad;
-        await using var connection = await PrepareAsync(host, useTunnel: !aad, ct);
-        var result = aad
-            ? await bastionService.RunNativeCommandAsync(connection.Host, command, ct, connection.Environment)
-            : await runner.RunAsync(CreateSshStartInfo(connection, captureOutput: true, tty: false, command), ct);
-        RecordCommand(host, command, result.ExitCode);
-        return result;
+        var elapsed = Stopwatch.StartNew();
+        try
+        {
+            var aad = host.AzureBastion?.AuthType == BastionAuthType.Aad;
+            await using var connection = await PrepareAsync(host, useTunnel: !aad, ct);
+            var result = aad
+                ? await bastionService.RunNativeCommandAsync(connection.Host, command, ct, connection.Environment)
+                : await runner.RunAsync(CreateSshStartInfo(connection, captureOutput: true, tty: false, command), ct);
+            RecordCommand(host, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            RecordCommand(host, command, null, elapsed.Elapsed.TotalSeconds, ex.GetType().Name);
+            throw;
+        }
     }
 
-    private void RecordCommand(ServerHost host, string command, int exitCode)
+    private void RecordCommand(ServerHost host, string command, int? exitCode, double? durationSeconds = null, string? error = null)
     {
         foreach (var password in new[] { host.SudoPassword, host.SshPassword })
             if (!string.IsNullOrEmpty(password)) command = command.Replace(password, "[REDACTED]", StringComparison.Ordinal);
         audit?.Record(new AuditEntry
         {
             EventType = "command.executed", Category = command.Contains("docker ", StringComparison.Ordinal) ? "docker" : "command", HostId = host.Id, Alias = host.Alias,
-            Action = command, Success = exitCode == 0, ExitCode = exitCode
+            Action = command, Success = exitCode == 0, ExitCode = exitCode, DurationSeconds = durationSeconds, ErrorMessage = error
         });
     }
 
@@ -74,6 +83,15 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
 
     public Task<ISshConnectionLease> PrepareConnectionAsync(ServerHost host, CancellationToken ct = default) => PrepareAsync(host, true, ct);
 
+    public async Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
+    {
+        await using var connection = await PrepareAsync(host, useTunnel: true, ct);
+        var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
+        var result = await runner.RunWithInputAsync(info, input, ct);
+        RecordCommand(host, command, result.ExitCode);
+        return result;
+    }
+
     private async Task<ISshConnectionLease> PrepareAsync(ServerHost host, bool useTunnel, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -82,6 +100,24 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
         var lease = new SshConnectionLease(prepared);
         try
         {
+            if (host.KeySecretRef != null)
+            {
+                if (host.KeySecretRef.SecretType is not (SecretType.SshPrivateKey or SecretType.Certificate)) throw new ArgumentException("SSH key reference must use SshPrivateKey or Certificate.");
+                var value = await ResolveValueAsync(host.KeySecretRef, ct);
+                var keyFile = await SecretKeyFile.CreateAsync(value, host.KeySecretRef.SecretType, ct);
+                lease.Add(keyFile);
+                prepared.IdentityFile = keyFile.Path;
+                prepared.AuthType = AuthType.SshKey;
+                if (prepared.AzureBastion != null) { prepared.AzureBastion.SshKeyPath = keyFile.Path; prepared.AzureBastion.AuthType = BastionAuthType.SshKey; }
+            }
+            if (host.PasswordSecretRef != null)
+            {
+                if (host.PasswordSecretRef.SecretType != SecretType.Password) throw new ArgumentException("SSH password reference must use Password.");
+                SetAskPassEnvironment(lease.Variables, await ResolveValueAsync(host.PasswordSecretRef, ct));
+                prepared.AuthType = AuthType.Password;
+                if (prepared.AzureBastion != null) prepared.AzureBastion.AuthType = BastionAuthType.Password;
+            }
+            else if (!string.IsNullOrEmpty(host.SshPassword)) SetAskPassEnvironment(lease.Variables, host.SshPassword);
             if (useTunnel && prepared.AzureBastion != null)
             {
                 var config = prepared.AzureBastion;
@@ -101,6 +137,25 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             return lease;
         }
         catch { await lease.DisposeAsync(); throw; }
+    }
+
+    private async Task<string> ResolveValueAsync(SecretRef reference, CancellationToken ct)
+    {
+        var result = await secrets.ResolveAsync(reference, ct);
+        if (!result.Success || result.Value == null) throw new InvalidOperationException(result.ErrorMessage ?? "Secret provider returned no value.");
+        return result.Value;
+    }
+
+    private static void SetAskPassEnvironment(IDictionary<string, string?> variables, string password)
+    {
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable) || Path.GetFileNameWithoutExtension(executable).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Password secrets require the sshocked executable/apphost. Launch ssk directly instead of dotnet ssk.dll.");
+        variables["SSH_ASKPASS"] = executable;
+        variables["SSH_ASKPASS_REQUIRE"] = "force";
+        variables["DISPLAY"] = Environment.GetEnvironmentVariable("DISPLAY") ?? "sshocked:0";
+        variables["SSHOCKED_INTERNAL_ASKPASS"] = "1";
+        variables["SSHOCKED_ASKPASS_PASSWORD"] = password;
     }
 
     private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)

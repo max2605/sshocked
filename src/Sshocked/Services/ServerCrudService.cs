@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerCrudService(IConfigRepository configRepository, IGroupManagementService groupManagement, ISshKeyPickerService keyPicker, ILogger<ServerCrudService> logger) : IServerCrudService
+public sealed class ServerCrudService(IConfigRepository configRepository, IGroupManagementService groupManagement, ISshKeyPickerService keyPicker, ISecretConfigurationUi secretUi, ILogger<ServerCrudService> logger) : IServerCrudService
 {
 
     public ServerHost? Add()
@@ -71,7 +71,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
                     "Password",
                     "SSH Agent",
                     "Custom SSH Options",
-                    "Azure Bastion"
+                    "Azure Bastion",
+                    "From Key Vault"
                 ]));
 
         string? identityFile = null;
@@ -117,6 +118,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         };
 
         if (authType == "Azure Bastion") host.AzureBastion = BastionConfigurationUi.Configure(null, user, keyPicker);
+        if (authType == "From Key Vault" || AnsiConsole.Confirm("Configure secret references for this host?", false)) secretUi.ConfigureHost(host);
         config.Hosts.Add(host);
         configRepository.Save(config);
         logger.LogInformation("Added host '{Alias}' ({HostName})", host.Alias, host.HostName);
@@ -195,7 +197,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
                     "Password",
                     "SSH Agent",
                     "Custom SSH Options",
-                    "Azure Bastion"
+                    "Azure Bastion",
+                    "From Key Vault"
                 ])
                 .DefaultValue(authTypeLabel));
 
@@ -227,6 +230,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         existing.Tags = string.IsNullOrWhiteSpace(tagsInput)
             ? []
             : tagsInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var originalAuth = existing.AuthType;
+        var originalIdentity = existing.IdentityFile;
         existing.AuthType = authType switch
         {
             "Password" => Models.AuthType.Password,
@@ -238,6 +243,13 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         existing.IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim();
         existing.CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim();
         existing.AzureBastion = authType == "Azure Bastion" ? BastionConfigurationUi.Configure(existing.AzureBastion, user, keyPicker) : null;
+        if (authType != "From Key Vault" && (originalAuth != existing.AuthType || originalIdentity != existing.IdentityFile))
+        {
+            existing.KeySecretRef = null;
+            existing.PasswordSecretRef = null;
+        }
+        if (authType == "From Key Vault" || AnsiConsole.Confirm("Configure secret references for this host?",
+            existing.KeySecretRef is not null || existing.PasswordSecretRef is not null || existing.SudoPasswordSecretRef is not null)) secretUi.ConfigureHost(existing);
 
         configRepository.Save(config);
         logger.LogInformation("Edited host '{Alias}'", existing.Alias);

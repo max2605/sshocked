@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ISshConfigSyncMenuService sshConfigSyncMenu, ILogger<MainMenuService> logger) : IMainMenuService
+public sealed class MainMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, IGroupManagementService groupManagement, IGroupMenuService groupMenu, IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IGroupConnectionService groupConnection, IContainerService containerService, IContainerGroupService containerGroupService, IProcessService processService, IMenuFactory menuFactory, IQuickAccessMenuService quickAccess, IRecentConnectionService recents, ISshConfigSyncMenuService sshConfigSyncMenu, ISecretConfigurationUi secretUi, ILogger<MainMenuService> logger) : IMainMenuService
 {
 
     public async Task Show()
@@ -66,6 +66,7 @@ public sealed class MainMenuService(IConfigRepository configRepository, IServerC
 
             var menuEntries = new List<MenuEntry>
             {
+                new("Manage secret providers", 'P', executeAsync: secretUi.Show),
                 new("Toggle recent connection tracking", 'H', executeAsync: () =>
                 {
                     config.TrackRecentConnections = !config.TrackRecentConnections;

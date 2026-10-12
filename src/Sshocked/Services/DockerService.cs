@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class DockerService(IProcessService processService, IConfigRepository configRepository, ILogger<DockerService> logger) : IDockerService
+public sealed class DockerService(IProcessService processService, IConfigRepository configRepository, ISecretProviderRegistry secrets, ILogger<DockerService> logger) : IDockerService
 {
     public async Task<DockerHostInfo> Scan(ServerHost host)
     {
@@ -14,7 +14,7 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
         var info = new DockerHostInfo();
 
         // Password auth doesn't support non-interactive remote commands
-        if (host.AuthType == AuthType.Password)
+        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null)
         {
             logger.LogInformation("Skipping Docker scan for {Alias}: password auth not supported for non-interactive commands", host.Alias);
             info.DockerAvailable = false;
@@ -23,9 +23,18 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
             return info;
         }
 
-        var sudo = BuildSudoPrefix(host.SudoPassword);
+        var sudo = host.SudoPasswordSecretRef is null ? BuildSudoPrefix(host.SudoPassword) : "sudo -S -p '' ";
+        async Task<string> RunScanCommand(string command)
+        {
+            if (host.SudoPasswordSecretRef is null) return await processService.RunSshCommand(host, command);
+            var secret = await secrets.ResolveAsync(host.SudoPasswordSecretRef);
+            if (!secret.Success || secret.Value is null) throw new InvalidOperationException(secret.ErrorMessage ?? "Could not resolve sudo password.");
+            var result = await processService.RunSshCommandWithInput(host, command, secret.Value + "\n");
+            result.EnsureSuccess("Docker scan");
+            return result.StandardOutput;
+        }
 
-        var dockerInfoOutput = await processService.RunSshCommand(host, $"{sudo}docker info --format '{{{{json .}}}}' 2>/dev/null || echo 'DOCKER_NOT_AVAILABLE'");
+        var dockerInfoOutput = await RunScanCommand($"{sudo}docker info --format '{{{{json .}}}}' 2>/dev/null || echo 'DOCKER_NOT_AVAILABLE'");
         dockerInfoOutput = dockerInfoOutput.Trim();
 
         if (dockerInfoOutput == "DOCKER_NOT_AVAILABLE" || string.IsNullOrEmpty(dockerInfoOutput))
@@ -64,10 +73,10 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
             logger.LogWarning(ex, "Failed to parse docker info JSON from {Alias}", host.Alias);
         }
 
-        var containersOutput = await processService.RunSshCommand(host, $"{sudo}docker ps -a --format '{{{{json .}}}}' 2>/dev/null");
+        var containersOutput = await RunScanCommand($"{sudo}docker ps -a --format '{{{{json .}}}}' 2>/dev/null");
         info.Containers = ParseContainerJson(containersOutput);
 
-        var composeOutput = await processService.RunSshCommand(host, $"{sudo}docker compose ls --format '{{{{json .}}}}' 2>/dev/null");
+        var composeOutput = await RunScanCommand($"{sudo}docker compose ls --format '{{{{json .}}}}' 2>/dev/null || true");
         info.ComposeStacks = ParseComposeStackJson(composeOutput);
 
         info.LastScannedAt = DateTime.UtcNow;

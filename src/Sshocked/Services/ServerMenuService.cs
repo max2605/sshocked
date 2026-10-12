@@ -182,7 +182,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
     private async Task ScanDockerForHost(ServerHost host)
     {
-        if (host.AuthType == AuthType.Password)
+        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null)
         {
             AnsiConsole.MarkupLine("[yellow]Docker scan is not supported for password-authenticated hosts.[/]");
             AnsiConsole.MarkupLine("[grey]Use SSH key or agent authentication to enable Docker scanning.[/]");
@@ -190,7 +190,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
             return;
         }
 
-        if (string.IsNullOrEmpty(host.SudoPassword))
+        if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
         {
             var needsSudo = AnsiConsole.Confirm("Does this host require [yellow]sudo[/] with a password?", false);
             if (needsSudo)

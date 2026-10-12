@@ -22,7 +22,7 @@ public static class ScpArguments
         if (recursive) arguments.Add("-r");
         if (host.AuthType == AuthType.SshKey && !string.IsNullOrWhiteSpace(host.IdentityFile))
             arguments.AddRange(["-i", host.IdentityFile]);
-        if (host.AuthType == AuthType.CustomConfig && !string.IsNullOrWhiteSpace(host.CustomSshOptions))
+        if (!string.IsNullOrWhiteSpace(host.CustomSshOptions))
             AddCustomOptions(arguments, SshArguments.Tokenize(host.CustomSshOptions));
         if (!string.IsNullOrWhiteSpace(host.ProxyJump))
             arguments.AddRange(["-J", host.ProxyJump]);

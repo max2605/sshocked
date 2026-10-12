@@ -4,6 +4,14 @@ using Spectre.Console;
 using Sshocked.Interfaces;
 using Sshocked.Services;
 
+// OpenSSH invokes this executable as an askpass helper with a prompt argument.
+// Resolve it before configuration, DI and logging so only the requested password reaches stdout.
+if (Environment.GetEnvironmentVariable("SSHOCKED_INTERNAL_ASKPASS") == "1")
+{
+    Console.WriteLine(Environment.GetEnvironmentVariable("SSHOCKED_ASKPASS_PASSWORD") ?? "");
+    return;
+}
+
 var services = new ServiceCollection();
 ConfigureServices(services);
 
@@ -83,6 +91,9 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<ITerminalLauncherService, TerminalLauncherService>();
     services.AddSingleton<IExternalProcessRunner, ExternalProcessRunner>();
     services.AddSingleton<IBastionService, AzureBastionService>();
+    services.AddSingleton<ISecretProviderFactory, AzureKeyVaultSecretProviderFactory>();
+    services.AddSingleton<ISecretProviderRegistry, SecretProviderRegistry>();
+    services.AddSingleton<ISecretConfigurationUi, SecretConfigurationUi>();
     services.AddSingleton<IFileTransferService, FileTransferService>();
     services.AddSingleton<FileTransferUi>();
     services.AddSingleton<IDockerService, DockerService>();

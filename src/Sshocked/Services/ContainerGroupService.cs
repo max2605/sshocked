@@ -106,7 +106,7 @@ public sealed class ContainerGroupService(
 
     private static void EnsureSudoPassword(ServerHost host)
     {
-        if (string.IsNullOrEmpty(host.SudoPassword))
+        if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
         {
             var needsSudo = AnsiConsole.Confirm("Does this host require [yellow]sudo[/] to run Docker commands?", false);
             if (needsSudo)
