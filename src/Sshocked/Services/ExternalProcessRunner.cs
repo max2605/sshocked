@@ -17,12 +17,12 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         catch { process.Dispose(); throw; }
     }
 
-    public Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken = default) => RunCore(startInfo, null, cancellationToken);
+    public Task<ProcessResult> Run(ProcessStartInfo startInfo, CancellationToken cancellationToken = default) => RunCore(startInfo, null, cancellationToken);
 
-    public Task<ProcessResult> RunSessionAsync(ProcessStartInfo startInfo, Func<Task>? onStarted, CancellationToken cancellationToken = default)
+    public Task<ProcessResult> RunSession(ProcessStartInfo startInfo, Func<Task>? onStarted, CancellationToken cancellationToken = default)
         => RunCore(startInfo, null, cancellationToken, onStarted);
 
-    public Task<ProcessResult> RunWithInputAsync(ProcessStartInfo startInfo, string input, CancellationToken cancellationToken = default)
+    public Task<ProcessResult> RunWithInput(ProcessStartInfo startInfo, string input, CancellationToken cancellationToken = default)
     {
         startInfo.RedirectStandardInput = true;
         return RunCore(startInfo, input, cancellationToken);

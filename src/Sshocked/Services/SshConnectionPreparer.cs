@@ -27,7 +27,7 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
         {
             if (host.KeySecretRef.SecretType is not (SecretType.SshPrivateKey or SecretType.Certificate)) throw new ArgumentException("SSH key reference must use SshPrivateKey or Certificate.");
             var value = await ResolveValue(host.KeySecretRef, ct);
-            var keyFile = await SecretKeyFile.CreateAsync(value, host.KeySecretRef.SecretType, ct);
+            var keyFile = await SecretKeyFile.Create(value, host.KeySecretRef.SecretType, ct);
             lease.Add(keyFile);
             prepared.IdentityFile = keyFile.Path;
             prepared.AuthType = AuthType.SshKey;
@@ -47,9 +47,9 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
     {
         var prepared = lease.Host;
         var config = prepared.AzureBastion!;
-        var tunnel = await bastionService.CreateTunnelAsync(config, ct);
+        var tunnel = await bastionService.CreateTunnel(config, ct);
         lease.Add(tunnel);
-        await tunnel.WaitUntilReadyAsync(TimeSpan.FromSeconds(30), ct);
+        await tunnel.WaitUntilReady(TimeSpan.FromSeconds(30), ct);
         prepared.HostName = SshConnectionConstants.LoopbackAddress;
         prepared.ProxyJump = null;
         prepared.Port = tunnel.LocalPort;
@@ -63,7 +63,7 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
 
     private async Task<string> ResolveValue(SecretRef reference, CancellationToken ct)
     {
-        var result = await secrets.ResolveAsync(reference, ct);
+        var result = await secrets.Resolve(reference, ct);
         if (!result.Success || result.Value == null) throw new InvalidOperationException(result.ErrorMessage ?? "Secret provider returned no value.");
         return result.Value;
     }

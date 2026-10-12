@@ -14,7 +14,7 @@ public sealed class HostReachabilityTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         var host = new ServerHost { Id = "local", HostName = "127.0.0.1", Port = port };
-        var clock = new Clock();
+        var clock = new HostReachabilityTestsClock();
         using var service = new HostReachabilityService(clock);
         Assert.Equal(HostReachabilityState.Unchecked, service.GetStatus(host).State);
         Assert.Equal(HostReachabilityState.Online, (await service.CheckPortOpen(host)).State);
@@ -42,10 +42,4 @@ public sealed class HostReachabilityTests
     [Fact]
     public void ReachabilityChecksAreDisabledByDefault()
         => Assert.False(new UISettings().EnableReachabilityChecks);
-
-    private sealed class Clock : TimeProvider
-    {
-        public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
 }

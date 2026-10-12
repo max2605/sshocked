@@ -36,14 +36,14 @@ public sealed class FileTransferService(IProcessService processService, IExterna
         int? exitCode = null;
         try
         {
-            await using var lease = await processService.PrepareConnectionAsync(host, cancellationToken);
+            await using var lease = await processService.PrepareConnection(host, cancellationToken);
             var startInfo = new ProcessStartInfo("scp") { UseShellExecute = false };
             foreach (var argument in ScpArguments.Build(lease.Host, localPath, remotePath, upload, recursive))
                 startInfo.ArgumentList.Add(argument);
             foreach (var variable in lease.Environment)
                 startInfo.Environment[variable.Key] = variable.Value;
             // Inherit the terminal for SCP progress, host-key confirmation and password/agent prompts.
-            var result = await processRunner.RunAsync(startInfo, cancellationToken);
+            var result = await processRunner.Run(startInfo, cancellationToken);
             exitCode = result.ExitCode;
             logger.LogInformation("SCP {Direction} for {Alias} finished with exit code {ExitCode}",
                 upload ? "upload" : "download", host.Alias, exitCode);
@@ -53,8 +53,13 @@ public sealed class FileTransferService(IProcessService processService, IExterna
         {
             auditService.Record(new AuditEntry
             {
-                EventType = upload ? "file-upload" : "file-download", Category = "filetransfer", HostId = host.Id, Alias = host.Alias,
-                Action = upload ? $"{localPath} -> {remotePath}" : $"{remotePath} -> {localPath}", Success = exitCode == 0, ExitCode = exitCode,
+                EventType = upload ? "file-upload" : "file-download",
+                Category = "filetransfer",
+                HostId = host.Id,
+                Alias = host.Alias,
+                Action = upload ? $"{localPath} -> {remotePath}" : $"{remotePath} -> {localPath}",
+                Success = exitCode == 0,
+                ExitCode = exitCode,
                 DurationSeconds = stopwatch.Elapsed.TotalSeconds
             });
         }
@@ -64,17 +69,19 @@ public sealed class FileTransferService(IProcessService processService, IExterna
         CancellationToken cancellationToken = default)
     {
         ScpArguments.ValidatePath(remotePath);
-        await using var lease = await processService.PrepareConnectionAsync(host, cancellationToken);
+        await using var lease = await processService.PrepareConnection(host, cancellationToken);
         var command = $"LC_ALL=C ls -lan -- {RemoteShell.QuotePath(remotePath)}";
         var startInfo = new ProcessStartInfo("ssh")
         {
-            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
         foreach (var argument in SshArguments.Build(lease.Host, command: command))
             startInfo.ArgumentList.Add(argument);
         foreach (var variable in lease.Environment)
             startInfo.Environment[variable.Key] = variable.Value;
-        var result = await processRunner.RunAsync(startInfo, cancellationToken);
+        var result = await processRunner.Run(startInfo, cancellationToken);
         result.EnsureSuccess("Browse remote directory");
         return ParseDirectoryListing(result.StandardOutput, remotePath);
     }
@@ -108,9 +115,12 @@ public sealed class FileTransferService(IProcessService processService, IExterna
             }
             entries.Add(new RemoteFileEntry
             {
-                Name = name, FullPath = remotePath.TrimEnd('/') + "/" + name,
-                IsDirectory = permissions.StartsWith('d'), Permissions = permissions,
-                Size = long.Parse(match.Groups["size"].Value, CultureInfo.InvariantCulture), LastModified = modified
+                Name = name,
+                FullPath = remotePath.TrimEnd('/') + "/" + name,
+                IsDirectory = permissions.StartsWith('d'),
+                Permissions = permissions,
+                Size = long.Parse(match.Groups["size"].Value, CultureInfo.InvariantCulture),
+                LastModified = modified
             });
         }
         return entries.OrderByDescending(entry => entry.IsDirectory)

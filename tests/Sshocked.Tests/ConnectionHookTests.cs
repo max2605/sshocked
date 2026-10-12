@@ -1,6 +1,5 @@
-using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -10,8 +9,8 @@ public sealed class ConnectionHookTests
 {
     private static HookScript Script(string command) => new() { Mode = HookExecutionMode.ShellCommand, Command = command };
     private static ServerHost Host() => new() { Id = "id", Alias = "web with spaces", HostName = "server", User = "alice", Port = 2222, Tags = ["Prod", "web"] };
-    private static HookExecutorService Executor(Runner runner, Audit? audit = null) =>
-        new(runner, audit ?? new Audit(), NullLogger<HookExecutorService>.Instance);
+    private static HookExecutorService Executor(ConnectionHookTestsRunner runner, ConnectionHookTestsAudit? audit = null) =>
+        new(runner, audit ?? new ConnectionHookTestsAudit(), NullLogger<HookExecutorService>.Instance);
 
     [Fact]
     public void GlobalTagsAreCaseInsensitiveAndExclusionsTakePrecedence()
@@ -72,7 +71,7 @@ public sealed class ConnectionHookTests
         host.Hooks = new() { PreConnect = Script("host") };
         var global = new GlobalHooks { PreConnect = Script("global") };
         global.PreConnect.ContinueOnError = continueOnError;
-        var runner = new Runner { Handler = (_, _) => Task.FromResult(new ProcessResult(1, "", "failed")) };
+        var runner = new ConnectionHookTestsRunner { Handler = (_, _) => Task.FromResult(new ProcessResult(1, "", "failed")) };
         host.Hooks.PreConnect!.ContinueOnError = true;
         Assert.Equal(expected, await Executor(runner).RunLocalHooks(HookPhase.PreConnect, host, global, new()));
         Assert.Equal(count, runner.Calls.Count);
@@ -84,8 +83,8 @@ public sealed class ConnectionHookTests
         var host = Host();
         host.Hooks = new() { PreConnect = Script("slow") };
         host.Hooks.PreConnect.TimeoutSeconds = 1;
-        var audit = new Audit();
-        var runner = new Runner
+        var audit = new ConnectionHookTestsAudit();
+        var runner = new ConnectionHookTestsRunner
         {
             Handler = async (_, token) => { await Task.Delay(Timeout.InfiniteTimeSpan, token); return new(0, "", ""); }
         };
@@ -99,7 +98,7 @@ public sealed class ConnectionHookTests
     {
         var host = Host();
         host.Hooks = new() { PreConnect = Script("slow") };
-        var runner = new Runner
+        var runner = new ConnectionHookTestsRunner
         {
             Handler = async (_, token) => { await Task.Delay(Timeout.InfiniteTimeSpan, token); return new(0, "", ""); }
         };
@@ -114,8 +113,8 @@ public sealed class ConnectionHookTests
         host.Hooks = new() { PreConnect = Script("background") };
         host.Hooks.PreConnect.Blocking = false;
         var completion = new TaskCompletionSource<ProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runner = new Runner { Handler = (_, _) => completion.Task };
-        var audit = new Audit();
+        var runner = new ConnectionHookTestsRunner { Handler = (_, _) => completion.Task };
+        var audit = new ConnectionHookTestsAudit();
         Assert.True(await Executor(runner, audit).RunLocalHooks(HookPhase.PreConnect, host, null, new()));
         Assert.Empty(audit.Entries);
         completion.SetResult(new(1, "", "failed"));
@@ -129,7 +128,7 @@ public sealed class ConnectionHookTests
         var host = Host();
         host.Hooks = new() { PreConnect = new() { Mode = HookExecutionMode.InlineScript, InlineScript = "echo hello" } };
         string? scriptPath = null;
-        var runner = new Runner
+        var runner = new ConnectionHookTestsRunner
         {
             Handler = (info, _) =>
             {
@@ -152,7 +151,7 @@ public sealed class ConnectionHookTests
         var host = Host();
         host.Hooks = new() { PostDisconnect = new() { Mode = HookExecutionMode.InlineScript, InlineScript = "echo background", Blocking = false } };
         string? scriptPath = null;
-        var runner = new Runner
+        var runner = new ConnectionHookTestsRunner
         {
             Handler = async (info, token) =>
             {
@@ -199,7 +198,7 @@ public sealed class ConnectionHookTests
             PostConnect = new() { Mode = HookExecutionMode.RemoteCommand, Command = "echo global-setup" },
             PreDisconnect = new() { Mode = HookExecutionMode.RemoteCommand, Command = "echo global-cleanup" }
         };
-        var command = Executor(new Runner()).BuildRemoteSessionCommand(host, global, new())!;
+        var command = Executor(new ConnectionHookTestsRunner()).BuildRemoteSessionCommand(host, global, new())!;
         var hostSetup = command.IndexOf("/var/log", StringComparison.Ordinal);
         var globalSetup = command.IndexOf("global-setup", StringComparison.Ordinal);
         var shell = command.IndexOf("\"${SHELL:-/bin/sh}\" -i", StringComparison.Ordinal);
@@ -233,23 +232,5 @@ public sealed class ConnectionHookTests
     {
         Assert.Equal("'a'\"'\"'b; $(touch /tmp/nope)'", RemoteShell.Quote("a'b; $(touch /tmp/nope)"));
         Assert.Equal("\"$HOME\"/'a'\"'\"'b'", RemoteShell.QuotePath("~/a'b"));
-    }
-
-    private sealed class Runner : IExternalProcessRunner
-    {
-        public List<ProcessStartInfo> Calls { get; } = [];
-        public Func<ProcessStartInfo, CancellationToken, Task<ProcessResult>> Handler { get; set; } = (_, _) => Task.FromResult(new ProcessResult(0, "", ""));
-        public Process Start(ProcessStartInfo info) => throw new NotSupportedException();
-        public Task<ProcessResult> RunAsync(ProcessStartInfo info, CancellationToken cancellationToken = default)
-        { Calls.Add(info); return Handler(info, cancellationToken); }
-    }
-
-    private sealed class Audit : IAuditService
-    {
-        public List<AuditEntry> Entries { get; } = [];
-        public TaskCompletionSource Recorded { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public void Record(AuditEntry entry) { Entries.Add(entry); Recorded.TrySetResult(); }
-        public IReadOnlyList<AuditEntry> Query(AuditQuery query) => Entries;
-        public void Clear() => Entries.Clear();
     }
 }

@@ -22,7 +22,7 @@ public sealed class AzureKeyVaultSecretProvider(SecretProviderConfig config, Tok
         return (uri, new SecretClient(uri, credential));
     }
 
-    public async Task<SecretResult> GetSecretAsync(string secretId, SecretType type, CancellationToken ct = default)
+    public async Task<SecretResult> GetSecret(string secretId, SecretType type, CancellationToken ct = default)
     {
         try
         {
@@ -35,7 +35,7 @@ public sealed class AzureKeyVaultSecretProvider(SecretProviderConfig config, Tok
         catch (ArgumentException ex) { return new SecretResult { ErrorMessage = ex.Message }; }
     }
 
-    public async Task<List<SecretMetadata>> ListSecretsAsync(SecretType? filter = null, CancellationToken ct = default)
+    public async Task<List<SecretMetadata>> ListSecrets(SecretType? filter = null, CancellationToken ct = default)
     {
         var result = new List<SecretMetadata>();
         await foreach (var property in connection.Client.GetPropertiesOfSecretsAsync(ct))
@@ -52,7 +52,7 @@ public sealed class AzureKeyVaultSecretProvider(SecretProviderConfig config, Tok
         return result;
     }
 
-    public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
+    public async Task<bool> TestConnection(CancellationToken ct = default)
     {
         try
         {

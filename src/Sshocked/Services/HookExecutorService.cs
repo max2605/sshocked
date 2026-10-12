@@ -66,7 +66,7 @@ public sealed class HookExecutorService(IExternalProcessRunner processRunner, IA
             var startInfo = HookLocalProcess.BuildLocalStartInfo(hook, environment, out temporaryScript);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdown.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(hook.TimeoutSeconds));
-            var result = await processRunner.RunAsync(startInfo, timeout.Token);
+            var result = await processRunner.Run(startInfo, timeout.Token);
             exitCode = result.ExitCode;
             success = exitCode == 0;
             PublishOutput(hook.OutputMode, result.StandardOutput, result.StandardError);

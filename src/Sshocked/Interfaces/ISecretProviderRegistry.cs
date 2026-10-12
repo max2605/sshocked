@@ -6,6 +6,6 @@ public interface ISecretProviderRegistry
 {
     IReadOnlyList<SecretProviderConfig> GetConfigurations();
     ISecretProvider GetProvider(string? name = null);
-    Task<SecretResult> ResolveAsync(SecretRef reference, CancellationToken ct = default);
+    Task<SecretResult> Resolve(SecretRef reference, CancellationToken ct = default);
     void ClearCache();
 }

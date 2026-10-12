@@ -17,12 +17,12 @@ internal sealed class AzureBastionTunnel(Process process, int port) : IBastionTu
     {
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var errors = new StringBuilder();
-        var stdout = DrainAsync(process.StandardOutput, ready, errors);
-        var stderr = DrainAsync(process.StandardError, ready, errors);
-        return (ready, ObserveExitAsync(process, stdout, stderr, ready, errors));
+        var stdout = Drain(process.StandardOutput, ready, errors);
+        var stderr = Drain(process.StandardError, ready, errors);
+        return (ready, ObserveExit(process, stdout, stderr, ready, errors));
     }
 
-    private static async Task DrainAsync(StreamReader reader, TaskCompletionSource ready, StringBuilder errors)
+    private static async Task Drain(StreamReader reader, TaskCompletionSource ready, StringBuilder errors)
     {
         while (await reader.ReadLineAsync() is { } line)
         {
@@ -31,14 +31,14 @@ internal sealed class AzureBastionTunnel(Process process, int port) : IBastionTu
         }
     }
 
-    private static async Task ObserveExitAsync(Process process, Task stdout, Task stderr, TaskCompletionSource ready, StringBuilder errors)
+    private static async Task ObserveExit(Process process, Task stdout, Task stderr, TaskCompletionSource ready, StringBuilder errors)
     {
         await process.WaitForExitAsync();
         await Task.WhenAll(stdout, stderr);
         lock (errors) ready.TrySetException(new ProcessExecutionException(AzureCliSyntax.TunnelOperation, process.ExitCode, errors.ToString()));
     }
 
-    public async Task WaitUntilReadyAsync(TimeSpan timeout, CancellationToken ct = default)
+    public async Task WaitUntilReady(TimeSpan timeout, CancellationToken ct = default)
     {
         try { await monitor.Ready.Task.WaitAsync(timeout, ct); }
         catch (TimeoutException ex) { throw new TimeoutException("Azure Bastion tunnel did not become ready. Verify Bastion Standard/Premium SKU, native client support, target routing, and CLI permissions.", ex); }

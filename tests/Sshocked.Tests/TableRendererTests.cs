@@ -1,5 +1,5 @@
 using Spectre.Console;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -12,12 +12,16 @@ public sealed class TableRendererTests
     {
         var host = new ServerHost
         {
-            Id = "host", Alias = "alias[red]", HostName = "host.example", User = "admin", IsFavorite = true,
+            Id = "host",
+            Alias = "alias[red]",
+            HostName = "host.example",
+            User = "admin",
+            IsFavorite = true,
             SavedContainers = [new() { Name = "container[green]", Image = "image[blue]", ContainerId = "container", IsFavorite = true }]
         };
         var config = new AppConfig { Hosts = [host], RecentConnections = [new() { HostId = "host", LastConnectedAt = DateTimeOffset.UtcNow.AddMinutes(-2) }] };
-        var reachability = new FakeReachability();
-        var renderer = new TableRendererService(reachability, new MemoryRepository(config));
+        var reachability = new TableRendererTestsFakeReachability();
+        var renderer = new TableRendererService(reachability, new TableRendererTestsMemoryRepository(config));
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(output), Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors });
         console.Profile.Width = 200;
@@ -37,7 +41,7 @@ public sealed class TableRendererTests
     {
         var host = new ServerHost { Alias = "compact", HostName = "host", User = "admin", SavedContainers = [new() { Name = "hidden-container" }] };
         var config = new AppConfig { UI = new() { CompactMode = true, ShowLastConnectedColumn = false, ShowReachabilityStatus = false } };
-        var renderer = new TableRendererService(new FakeReachability(), new MemoryRepository(config));
+        var renderer = new TableRendererService(new TableRendererTestsFakeReachability(), new TableRendererTestsMemoryRepository(config));
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(output), Ansi = AnsiSupport.No });
         console.Profile.Width = 200;
@@ -45,17 +49,5 @@ public sealed class TableRendererTests
         Assert.DoesNotContain("hidden-container", output.ToString());
         Assert.DoesNotContain("Last connected", output.ToString());
         Assert.DoesNotContain("Status", output.ToString());
-    }
-
-    private sealed class FakeReachability : IHostReachabilityService
-    {
-        public int Scheduled { get; private set; }
-        public HostReachability GetStatus(ServerHost host, bool scheduleCheck = false) { if (scheduleCheck) Scheduled++; return new(HostReachabilityState.Unchecked); }
-        public Task<HostReachability> CheckPortOpen(ServerHost host, int timeoutMs = 1000, CancellationToken ct = default) => Task.FromResult(new HostReachability(HostReachabilityState.Unchecked));
-    }
-    private sealed class MemoryRepository(AppConfig config) : IConfigRepository
-    {
-        public AppConfig Load() => config;
-        public void Save(AppConfig updated) { }
     }
 }

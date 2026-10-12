@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -10,7 +10,10 @@ public sealed class AzureBastionTests
 {
     private static ServerHost BastionHost() => new()
     {
-        Alias = "private-vm", User = "user", IdentityFile = "C:/keys/my key.pem", AuthType = AuthType.AzureBastion,
+        Alias = "private-vm",
+        User = "user",
+        IdentityFile = "C:/keys/my key.pem",
+        AuthType = AuthType.AzureBastion,
         AzureBastion = new AzureBastionConfig { BastionName = "bastion & resource", BastionResourceGroup = "rg", TargetResourceId = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm" }
     };
 
@@ -50,12 +53,12 @@ public sealed class AzureBastionTests
     [Fact]
     public async Task PrerequisitesReportMissingExtensionAndUnauthenticatedAccount()
     {
-        var runner = new FakeRunner();
+        var runner = new AzureBastionTestsFakeRunner();
         runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
         runner.Results.Enqueue(new(0, "[]", ""));
         runner.Results.Enqueue(new(1, "", "login required"));
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
-        var result = await service.CheckPrerequisitesAsync();
+        var result = await service.CheckPrerequisites();
         Assert.True(result.IsInstalled);
         Assert.False(result.HasBastionExtension);
         Assert.False(result.IsLoggedIn);
@@ -65,13 +68,13 @@ public sealed class AzureBastionTests
     [Fact]
     public async Task NativeConnectionPropagatesExitWithoutRedirectingInteractiveConsole()
     {
-        var runner = new FakeRunner();
+        var runner = new AzureBastionTestsFakeRunner();
         runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
         runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"},{\"name\":\"ssh\"}]", ""));
         runner.Results.Enqueue(new(0, "{}", ""));
         runner.Results.Enqueue(new(17, "", ""));
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
-        Assert.Equal(17, await service.RunNativeSshAsync(BastionHost()));
+        Assert.Equal(17, await service.RunNativeSsh(BastionHost()));
         Assert.False(runner.Starts[^1].RedirectStandardOutput);
         Assert.False(runner.Starts[^1].RedirectStandardError);
     }
@@ -85,7 +88,7 @@ public sealed class AzureBastionTests
     [InlineData(BastionAuthType.Aad, true)]
     public async Task AllNativeAuthenticationTypesRequireTheSshExtension(BastionAuthType authType, bool command)
     {
-        var runner = new FakeRunner();
+        var runner = new AzureBastionTestsFakeRunner();
         runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
         runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"}]", ""));
         runner.Results.Enqueue(new(0, "{}", ""));
@@ -96,8 +99,8 @@ public sealed class AzureBastionTests
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
         var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
-            if (command) await service.RunNativeCommandAsync(host, "true");
-            else await service.RunNativeSshAsync(host);
+            if (command) await service.RunNativeCommand(host, "true");
+            else await service.RunNativeSsh(host);
         });
         Assert.Contains("az extension add --name ssh", error.Message);
         Assert.DoesNotContain(runner.Starts, start => start.ArgumentList.Contains("bastion") && start.ArgumentList.Contains("network"));
@@ -115,8 +118,8 @@ public sealed class AzureBastionTests
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
         var error = await Assert.ThrowsAsync<NotSupportedException>(async () =>
         {
-            if (captureOutput) await service.RunNativeCommandAsync(BastionHost(), command);
-            else await service.RunNativeSshAsync(BastionHost(), command);
+            if (captureOutput) await service.RunNativeCommand(BastionHost(), command);
+            else await service.RunNativeSsh(BastionHost(), command);
         });
         Assert.Contains("tunnel mode", error.Message);
         Assert.Equal(3, runner.Starts.Count);
@@ -145,14 +148,14 @@ public sealed class AzureBastionTests
             default: host.AzureBastion!.SshKeyPath = value; break;
         }
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
-        var error = await Assert.ThrowsAsync<ArgumentException>(() => service.RunNativeSshAsync(host));
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => service.RunNativeSsh(host));
         Assert.Contains("Windows shell syntax", error.Message);
         Assert.Equal(3, runner.Starts.Count);
     }
 
-    private static FakeRunner ReadyNativeRunner()
+    private static AzureBastionTestsFakeRunner ReadyNativeRunner()
     {
-        var runner = new FakeRunner();
+        var runner = new AzureBastionTestsFakeRunner();
         runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
         runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"},{\"name\":\"ssh\"}]", ""));
         runner.Results.Enqueue(new(0, "{}", ""));
@@ -182,9 +185,9 @@ public sealed class AzureBastionTests
     [Fact]
     public async Task TunnelReadinessAndDisposalManageTheProcessLifecycle()
     {
-        var runner = new TunnelRunner(fail: false);
+        var runner = new AzureBastionTestsTunnelRunner(fail: false);
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
-        var tunnel = await service.CreateTunnelAsync(BastionHost().AzureBastion!);
+        var tunnel = await service.CreateTunnel(BastionHost().AzureBastion!);
         var pid = runner.StartedPid;
         Assert.True(tunnel.IsReady);
         Assert.InRange(tunnel.LocalPort, 1, 65535);
@@ -195,9 +198,9 @@ public sealed class AzureBastionTests
     [Fact]
     public async Task TunnelStartupFailurePropagatesAzureExitAndCleansUp()
     {
-        var runner = new TunnelRunner(fail: true);
+        var runner = new AzureBastionTestsTunnelRunner(fail: true);
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
-        var error = await Assert.ThrowsAsync<ProcessExecutionException>(() => service.CreateTunnelAsync(BastionHost().AzureBastion!));
+        var error = await Assert.ThrowsAsync<ProcessExecutionException>(() => service.CreateTunnel(BastionHost().AzureBastion!));
         Assert.Equal(7, error.ExitCode);
         Assert.Contains("target not found", error.StandardError);
         AssertProcessExited(runner.StartedPid);
@@ -207,39 +210,5 @@ public sealed class AzureBastionTests
     {
         try { using var process = Process.GetProcessById(pid); Assert.True(process.HasExited); }
         catch (ArgumentException) { }
-    }
-
-    private sealed class TunnelRunner(bool fail) : IExternalProcessRunner
-    {
-        public int StartedPid { get; private set; }
-        public Process Start(ProcessStartInfo ignored)
-        {
-            var info = new ProcessStartInfo { FileName = OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-            if (OperatingSystem.IsWindows())
-            {
-                info.ArgumentList.Add("-NoProfile"); info.ArgumentList.Add("-Command");
-                info.ArgumentList.Add(fail ? "[Console]::Error.WriteLine('target not found'); exit 7" : "Write-Output 'Tunnel is ready'; Start-Sleep -Seconds 60");
-            }
-            else { info.ArgumentList.Add("-c"); info.ArgumentList.Add(fail ? "echo 'target not found' >&2; exit 7" : "echo 'Tunnel is ready'; sleep 60"); }
-            var process = Process.Start(info)!;
-            StartedPid = process.Id;
-            return process;
-        }
-        public Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken = default)
-        {
-            var args = startInfo.ArgumentList;
-            var result = args.Contains("version") ? new ProcessResult(0, "{\"azure-cli\":\"2.62.0\"}", "") :
-                args.Contains("extension") ? new ProcessResult(0, "[{\"name\":\"bastion\"}]", "") : new ProcessResult(0, "{}", "");
-            return Task.FromResult(result);
-        }
-    }
-
-    private sealed class FakeRunner : IExternalProcessRunner
-    {
-        public Queue<ProcessResult> Results { get; } = new();
-        public List<ProcessStartInfo> Starts { get; } = [];
-        public Process Start(ProcessStartInfo startInfo) => throw new NotSupportedException();
-        public Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken = default)
-        { Starts.Add(startInfo); return Task.FromResult(Results.Dequeue()); }
     }
 }

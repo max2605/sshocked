@@ -53,8 +53,17 @@ public sealed class SshRunnerService(IProcessService processService, IRecentConn
             if (cleanupFailure is not null) logger.LogWarning(cleanupFailure, "Connection cleanup hook failed for {Alias}", host.Alias);
             var success = failure is null && cleanupFailure is null && exitCode == 0;
             if (success) recents.Record(host);
-            audit.Record(new() { Category = "connection", EventType = "connection.end", HostId = host.Id, Alias = host.Alias,
-                Success = success, ExitCode = exitCode, ErrorMessage = (failure ?? cleanupFailure)?.GetType().Name, DurationSeconds = timer.Elapsed.TotalSeconds });
+            audit.Record(new()
+            {
+                Category = "connection",
+                EventType = "connection.end",
+                HostId = host.Id,
+                Alias = host.Alias,
+                Success = success,
+                ExitCode = exitCode,
+                ErrorMessage = (failure ?? cleanupFailure)?.GetType().Name,
+                DurationSeconds = timer.Elapsed.TotalSeconds
+            });
             if (failure is null && cleanupFailure is not null) throw cleanupFailure;
         }
     }

@@ -46,9 +46,9 @@ public sealed class FileTransferUi(IFileTransferService transferService)
                 table.AddRow(Markup.Escape(entry.Name), entry.IsDirectory ? "directory" : "file",
                     entry.Size.ToString(), entry.LastModified?.ToString("yyyy-MM-dd HH:mm") ?? "unknown");
             AnsiConsole.Write(table);
-            var choices = new List<BrowseChoice> { new("Back", null), new(".. (parent directory)", null), new("/ (root directory)", null) };
-            choices.AddRange(entries.Select(entry => new BrowseChoice(entry.Name + (entry.IsDirectory ? "/" : ""), entry)));
-            var selected = AnsiConsole.Prompt(new SelectionPrompt<BrowseChoice>()
+            var choices = new List<FileTransferUiBrowseChoice> { new("Back", null), new(".. (parent directory)", null), new("/ (root directory)", null) };
+            choices.AddRange(entries.Select(entry => new FileTransferUiBrowseChoice(entry.Name + (entry.IsDirectory ? "/" : ""), entry)));
+            var selected = AnsiConsole.Prompt(new SelectionPrompt<FileTransferUiBrowseChoice>()
                 .Title($"[green]{Markup.Escape(host.Alias)}:{Markup.Escape(path)}[/]")
                 .UseConverter(choice => Markup.Escape(choice.Label)).AddChoices(choices));
             if (selected == choices[0]) return;
@@ -58,9 +58,10 @@ public sealed class FileTransferUi(IFileTransferService transferService)
             if (file.IsDirectory)
             {
                 var action = AnsiConsole.Prompt(new SelectionPrompt<string>()
-                    .Title($"[green]{Markup.Escape(file.Name)}[/]").AddChoices("Enter directory", "Download recursively", "Cancel"));
-                if (action == "Enter directory") path = file.FullPath;
-                else if (action == "Download recursively") await DownloadEntry(host, file.FullPath, true);
+                    .Title($"[green]{Markup.Escape(file.Name)}[/]")
+                    .AddChoices(FileTransferLabels.EnterDirectory, FileTransferLabels.DownloadDirectory, FileTransferLabels.Cancel));
+                if (action == FileTransferLabels.EnterDirectory) path = file.FullPath;
+                else if (action == FileTransferLabels.DownloadDirectory) await DownloadEntry(host, file.FullPath, true);
             }
             else await DownloadEntry(host, file.FullPath, false);
         }
@@ -107,9 +108,9 @@ public sealed class FileTransferUi(IFileTransferService transferService)
         if (quick)
         {
             var files = Directory.EnumerateFileSystemEntries(Environment.CurrentDirectory).Order(StringComparer.OrdinalIgnoreCase).ToList();
-            var choices = new List<LocalChoice> { new("Enter a path...", null), new("Cancel", null) };
-            choices.AddRange(files.Select(file => new LocalChoice(Path.GetFileName(file) + (Directory.Exists(file) ? "/" : ""), file)));
-            var selected = AnsiConsole.Prompt(new SelectionPrompt<LocalChoice>().Title("[green]Local file or directory[/]")
+            var choices = new List<FileTransferUiLocalChoice> { new("Enter a path...", null), new(FileTransferLabels.Cancel, null) };
+            choices.AddRange(files.Select(file => new FileTransferUiLocalChoice(Path.GetFileName(file) + (Directory.Exists(file) ? "/" : ""), file)));
+            var selected = AnsiConsole.Prompt(new SelectionPrompt<FileTransferUiLocalChoice>().Title("[green]Local file or directory[/]")
                 .UseConverter(choice => Markup.Escape(choice.Label)).AddChoices(choices));
             if (selected == choices[1]) return null;
             if (selected.Path is not null) return selected.Path;
@@ -189,7 +190,4 @@ public sealed class FileTransferUi(IFileTransferService transferService)
         if (slash == 0) return "/";
         return path is "~" or "." ? path + "/.." : ".";
     }
-
-    private sealed record BrowseChoice(string Label, RemoteFileEntry? Entry);
-    private sealed record LocalChoice(string Label, string? Path);
 }

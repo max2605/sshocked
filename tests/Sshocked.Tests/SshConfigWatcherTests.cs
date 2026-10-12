@@ -12,7 +12,7 @@ public sealed class SshConfigWatcherTests
         Directory.CreateDirectory(directory);
         try
         {
-            var clock = new ManualClock();
+            var clock = new SshConfigWatcherTestsManualClock();
             using var watcher = new SshConfigWatcher(NullLogger<SshConfigWatcher>.Instance, clock);
             var count = 0;
             watcher.Changed += (_, _) => count++;
@@ -98,43 +98,5 @@ public sealed class SshConfigWatcherTests
             if (snapshot == count()) return snapshot;
         }
         throw new TimeoutException("SSH config watcher did not settle before the atomic rename test.");
-    }
-
-    private sealed class ManualClock : TimeProvider
-    {
-        private long _ticks;
-        private ManualTimer? _timer;
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-        public override long GetTimestamp() => _ticks;
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            _timer = new ManualTimer(this, callback, state);
-            _timer.Change(dueTime, period);
-            return _timer;
-        }
-        public void Advance(TimeSpan elapsed, bool fireTimer = true)
-        {
-            _ticks += elapsed.Ticks;
-            if (fireTimer) _timer?.FireIfDue();
-        }
-        public Action CaptureCallback() => _timer!.InvokeQueuedCallback;
-        private sealed class ManualTimer(ManualClock clock, TimerCallback callback, object? state) : ITimer
-        {
-            private long _due = long.MaxValue;
-            public bool Change(TimeSpan dueTime, TimeSpan period)
-            {
-                _due = dueTime == Timeout.InfiniteTimeSpan ? long.MaxValue : clock._ticks + dueTime.Ticks;
-                return true;
-            }
-            public void FireIfDue()
-            {
-                if (_due > clock._ticks) return;
-                _due = long.MaxValue;
-                callback(state);
-            }
-            public void InvokeQueuedCallback() => callback(state);
-            public void Dispose() => _due = long.MaxValue;
-            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
-        }
     }
 }

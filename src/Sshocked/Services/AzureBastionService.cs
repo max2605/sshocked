@@ -13,15 +13,15 @@ namespace Sshocked.Services;
 
 public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<AzureBastionService> logger) : IBastionService
 {
-    public async Task<BastionCliInfo> CheckPrerequisitesAsync(CancellationToken ct = default)
+    public async Task<BastionCliInfo> CheckPrerequisites(CancellationToken ct = default)
     {
         try
         {
-            var versionResult = await runner.RunAsync(AzureCliCommand.Create([VersionCommand, OutputOption, JsonOutput]), ct);
+            var versionResult = await runner.Run(AzureCliCommand.Create([VersionCommand, OutputOption, JsonOutput]), ct);
             if (versionResult.ExitCode != 0) return new(false, null, false, false, false, "Install Azure CLI: https://aka.ms/azure-cli");
             using var versions = JsonDocument.Parse(versionResult.StandardOutput);
             Version.TryParse(versions.RootElement.GetProperty(CliVersionProperty).GetString(), out var version);
-            var extensionsResult = await runner.RunAsync(AzureCliCommand.Create([Extension, List, OutputOption, JsonOutput]), ct);
+            var extensionsResult = await runner.Run(AzureCliCommand.Create([Extension, List, OutputOption, JsonOutput]), ct);
             var bastion = false;
             var ssh = false;
             if (extensionsResult.ExitCode == 0)
@@ -34,7 +34,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
                     ssh |= name == Ssh;
                 }
             }
-            var account = await runner.RunAsync(AzureCliCommand.Create([Account, Show, OutputOption, JsonOutput]), ct);
+            var account = await runner.Run(AzureCliCommand.Create([Account, Show, OutputOption, JsonOutput]), ct);
             var error = version == null || version < new Version(2, 62, 0) ? "Upgrade Azure CLI to version 2.62.0 or later." :
                 !bastion ? "Install Bastion support: az extension add --name bastion" :
                 account.ExitCode != 0 ? "Sign in to Azure: az login" : null;
@@ -44,36 +44,36 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         catch (JsonException) { return new(true, null, false, false, false, "Azure CLI returned invalid JSON. Upgrade Azure CLI and verify az version, az extension list and az account show."); }
     }
 
-    public Task<int> RunNativeSshAsync(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
-        => RunNativeSessionAsync(host, command, ct, environment, null);
+    public Task<int> RunNativeSsh(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
+        => RunNativeSession(host, command, ct, environment, null);
 
-    public async Task<int> RunNativeSessionAsync(ServerHost host, string? command, CancellationToken ct, IReadOnlyDictionary<string, string?>? environment, Func<Task>? onStarted)
+    public async Task<int> RunNativeSession(ServerHost host, string? command, CancellationToken ct, IReadOnlyDictionary<string, string?>? environment, Func<Task>? onStarted)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
-        await EnsureReadyAsync(config, true, ct);
+        await EnsureReady(config, true, ct);
         ValidateNativeWindowsArguments(host, command);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command), captureOutput: false);
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         logger.LogInformation("Connecting to {Alias} through Azure Bastion native SSH", host.Alias);
-        return (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
+        return (await runner.RunSession(info, onStarted, ct)).ExitCode;
     }
 
-    public async Task<ProcessResult> RunNativeCommandAsync(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
+    public async Task<ProcessResult> RunNativeCommand(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
-        await EnsureReadyAsync(config, true, ct);
+        await EnsureReady(config, true, ct);
         ValidateNativeWindowsArguments(host, command);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command, tty: false));
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
-        return await runner.RunAsync(info, ct);
+        return await runner.Run(info, ct);
     }
 
-    public async Task<IBastionTunnel> CreateTunnelAsync(AzureBastionConfig config, CancellationToken ct = default)
+    public async Task<IBastionTunnel> CreateTunnel(AzureBastionConfig config, CancellationToken ct = default)
     {
         Validate(config);
         if (config.AuthType == BastionAuthType.Aad)
             throw new InvalidOperationException("AAD authentication requires native Azure Bastion mode. Select SSH key/password authentication for tunnel mode.");
-        await EnsureReadyAsync(config, false, ct);
+        await EnsureReady(config, false, ct);
         var port = config.LocalPort;
         var listener = new TcpListener(IPAddress.Loopback, port);
         try { listener.Start(); port = ((IPEndPoint)listener.LocalEndpoint).Port; }
@@ -83,18 +83,18 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         var tunnel = new AzureBastionTunnel(runner.Start(AzureCliCommand.Create(BuildTunnelArguments(config, port))), port);
         try
         {
-            await tunnel.WaitUntilReadyAsync(TimeSpan.FromSeconds(30), ct);
+            await tunnel.WaitUntilReady(TimeSpan.FromSeconds(30), ct);
             logger.LogInformation("Azure Bastion tunnel ready on loopback port {Port}", port);
             return tunnel;
         }
         catch { await tunnel.DisposeAsync(); throw; }
     }
 
-    public async Task<IReadOnlyList<BastionVmInfo>> ListTargetVmsAsync(string bastionName, string resourceGroup, CancellationToken ct = default)
+    public async Task<IReadOnlyList<BastionVmInfo>> ListTargetVms(string bastionName, string resourceGroup, CancellationToken ct = default)
     {
-        var check = await runner.RunAsync(AzureCliCommand.Create([Network, Bastion, Show, NameOption, bastionName, ResourceGroupOption, resourceGroup, OutputOption, JsonOutput]), ct);
+        var check = await runner.Run(AzureCliCommand.Create([Network, Bastion, Show, NameOption, bastionName, ResourceGroupOption, resourceGroup, OutputOption, JsonOutput]), ct);
         check.EnsureSuccess("Inspect Azure Bastion");
-        var result = await runner.RunAsync(AzureCliCommand.Create([Vm, List, ShowDetailsOption, OutputOption, JsonOutput]), ct);
+        var result = await runner.Run(AzureCliCommand.Create([Vm, List, ShowDetailsOption, OutputOption, JsonOutput]), ct);
         result.EnsureSuccess("List candidate Azure VMs");
         using var document = JsonDocument.Parse(result.StandardOutput);
         var vms = new List<BastionVmInfo>();
@@ -107,17 +107,17 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         return vms;
     }
 
-    private async Task EnsureReadyAsync(AzureBastionConfig config, bool needsSshExtension, CancellationToken ct)
+    private async Task EnsureReady(AzureBastionConfig config, bool needsSshExtension, CancellationToken ct)
     {
         Validate(config);
-        var prerequisites = await CheckPrerequisitesAsync(ct);
+        var prerequisites = await CheckPrerequisites(ct);
         if (prerequisites.ErrorMessage != null) throw new InvalidOperationException(prerequisites.ErrorMessage);
         if (needsSshExtension && !prerequisites.HasSshExtension) throw new InvalidOperationException("Install native SSH support: az extension add --name ssh");
         if (!string.IsNullOrWhiteSpace(config.TenantId))
         {
             var args = new List<string> { Account, Show, QueryOption, TenantIdQuery, OutputOption, TsvOutput };
             if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange([SubscriptionOption, config.SubscriptionId]);
-            var account = await runner.RunAsync(AzureCliCommand.Create(args), ct);
+            var account = await runner.Run(AzureCliCommand.Create(args), ct);
             account.EnsureSuccess("Read Azure tenant");
             if (!string.Equals(account.StandardOutput.Trim(), config.TenantId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Sign in to the configured tenant: az login --tenant {config.TenantId}");

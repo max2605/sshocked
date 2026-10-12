@@ -19,7 +19,7 @@ public interface IProcessService
         ct.ThrowIfCancellationRequested();
         return new ProcessResult(0, await RunSshCommand(host, command), "");
     }
-    Task<ISshConnectionLease> PrepareConnectionAsync(ServerHost host, CancellationToken ct = default) =>
+    Task<ISshConnectionLease> PrepareConnection(ServerHost host, CancellationToken ct = default) =>
         throw new NotSupportedException("This process service does not expose prepared SSH connections.");
     Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default) =>
         throw new NotSupportedException("This process service does not support protected standard input.");

@@ -28,7 +28,7 @@ public sealed class SecretKeyFile : IAsyncDisposable
     }
     private SecretKeyFile(string directory, string path, FileStream? stream) { this.directory = directory; Path = path; this.stream = stream; }
 
-    public static async Task<SecretKeyFile> CreateAsync(string value, SecretType type, CancellationToken ct = default)
+    public static async Task<SecretKeyFile> Create(string value, SecretType type, CancellationToken ct = default)
     {
         if (type == SecretType.Certificate)
         {

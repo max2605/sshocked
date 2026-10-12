@@ -74,7 +74,7 @@ public sealed class ContainerGroupService(
             try
             {
                 var dockerCommand = $"docker exec -- {DockerCommandSyntax.QuoteContainerName(container.Name)} {command}";
-                var output = await DockerSudo.RunAsync(processService, secrets, server, dockerCommand);
+                var output = await DockerSudo.Run(processService, secrets, server, dockerCommand);
                 Console.Write(output);
 
                 if (!output.EndsWith('\n'))

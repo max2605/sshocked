@@ -8,14 +8,7 @@ namespace Sshocked.Services;
 /// <summary>Optional TCP reachability only; an open port does not imply a successful SSH login.</summary>
 public sealed class HostReachabilityService(TimeProvider? timeProvider = null) : IHostReachabilityService, IDisposable
 {
-    private sealed class Entry
-    {
-        public readonly object Gate = new();
-        public DateTimeOffset? LastChecked;
-        public bool? Reachable;
-        public bool Checking;
-    }
-    private readonly ConcurrentDictionary<string, Entry> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, HostReachabilityServiceEntry> _cache = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _concurrency = new(4);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;

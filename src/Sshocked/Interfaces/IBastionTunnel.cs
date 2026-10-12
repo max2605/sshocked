@@ -6,5 +6,5 @@ public interface IBastionTunnel : IAsyncDisposable
 
     bool IsReady { get; }
 
-    Task WaitUntilReadyAsync(TimeSpan timeout, CancellationToken ct = default);
+    Task WaitUntilReady(TimeSpan timeout, CancellationToken ct = default);
 }

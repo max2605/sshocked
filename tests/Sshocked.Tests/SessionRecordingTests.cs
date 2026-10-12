@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -16,7 +16,7 @@ public sealed class SessionRecordingTests : IDisposable
     [Fact]
     public void RecordingDefaultsOffAndExplicitHostOverridesAndExclusionsApply()
     {
-        var config = new Config();
+        var config = new SessionRecordingTestsConfig();
         var service = new SessionRecordingService(config, new ExternalProcessRunner(), Repository(), NullLogger<SessionRecordingService>.Instance);
         var host = Host();
         Assert.False(service.ShouldRecord(host));
@@ -188,7 +188,7 @@ public sealed class SessionRecordingTests : IDisposable
     [Fact]
     public async Task RecorderCapturesBothStreamsAndReturnsNativeExitCode()
     {
-        var config = new Config();
+        var config = new SessionRecordingTestsConfig();
         config.Value.SessionRecording.Compress = false;
         var repository = Repository();
         var service = new SessionRecordingService(config, new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
@@ -205,10 +205,10 @@ public sealed class SessionRecordingTests : IDisposable
     [Fact]
     public async Task RecorderCancellationKillsChildAndFinalizesPartialOutput()
     {
-        var config = new Config();
+        var config = new SessionRecordingTestsConfig();
         config.Value.SessionRecording.Compress = false;
         var repository = Repository();
-        var runner = new ObservedRunner();
+        var runner = new SessionRecordingTestsObservedRunner();
         var service = new SessionRecordingService(config, runner, repository, NullLogger<SessionRecordingService>.Instance);
         using var cancellation = new CancellationTokenSource();
         var info = Child("echo before-cancel & ping -n 30 127.0.0.1 > nul", "printf before-cancel; sleep 30");
@@ -229,8 +229,8 @@ public sealed class SessionRecordingTests : IDisposable
     public async Task RecordingCallsStartedCallbackWhileChildIsAlive()
     {
         var repository = Repository();
-        var runner = new ObservedRunner();
-        var service = new SessionRecordingService(new Config(), runner, repository, NullLogger<SessionRecordingService>.Instance);
+        var runner = new SessionRecordingTestsObservedRunner();
+        var service = new SessionRecordingService(new SessionRecordingTestsConfig(), runner, repository, NullLogger<SessionRecordingService>.Instance);
         var started = false;
         var info = Child("ping -n 2 127.0.0.1 > nul", "sleep 1");
         await service.Record(info, Host(), onStarted: () =>
@@ -248,8 +248,8 @@ public sealed class SessionRecordingTests : IDisposable
     public async Task StartedCallbackFailureKillsChildAndFinalizesRecording()
     {
         var repository = Repository();
-        var runner = new ObservedRunner();
-        var service = new SessionRecordingService(new Config(), runner, repository, NullLogger<SessionRecordingService>.Instance);
+        var runner = new SessionRecordingTestsObservedRunner();
+        var service = new SessionRecordingService(new SessionRecordingTestsConfig(), runner, repository, NullLogger<SessionRecordingService>.Instance);
         var info = Child("ping -n 30 127.0.0.1 > nul", "sleep 30");
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.Record(info, Host(), onStarted:
             () => throw new InvalidOperationException("setup hook failed")));
@@ -263,8 +263,8 @@ public sealed class SessionRecordingTests : IDisposable
     public async Task OneFailedReaderKillsChildWithoutWaitingForOtherOpenStream()
     {
         var repository = Repository();
-        var runner = new ObservedRunner { CloseStandardOutput = true };
-        var service = new SessionRecordingService(new Config(), runner, repository, NullLogger<SessionRecordingService>.Instance);
+        var runner = new SessionRecordingTestsObservedRunner { CloseStandardOutput = true };
+        var service = new SessionRecordingService(new SessionRecordingTestsConfig(), runner, repository, NullLogger<SessionRecordingService>.Instance);
         var info = Child("ping -n 30 127.0.0.1 > nul", "sleep 30");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await Assert.ThrowsAsync<ObjectDisposedException>(() => service.Record(info, Host(), deadline.Token));
@@ -277,7 +277,7 @@ public sealed class SessionRecordingTests : IDisposable
     public async Task FinalizationFailurePreservesPrimaryFailureAndExistingGzipFile()
     {
         var repository = Repository();
-        var service = new SessionRecordingService(new Config(), new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
+        var service = new SessionRecordingService(new SessionRecordingTestsConfig(), new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
         string? existingGzip = null;
         var info = Child("ping -n 30 127.0.0.1 > nul", "sleep 30");
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.Record(info, Host(), onStarted: () =>
@@ -295,7 +295,7 @@ public sealed class SessionRecordingTests : IDisposable
     public async Task RecorderPreservesUnicodeAcrossReadBufferBoundaries()
     {
         var repository = Repository();
-        var service = new SessionRecordingService(new Config(), new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
+        var service = new SessionRecordingService(new SessionRecordingTestsConfig(), new ExternalProcessRunner(), repository, NullLogger<SessionRecordingService>.Instance);
         ProcessStartInfo info;
         if (OperatingSystem.IsWindows())
         {
@@ -315,7 +315,7 @@ public sealed class SessionRecordingTests : IDisposable
     [InlineData(RecordingMode.ScriptFormat)]
     public async Task RecorderRejectsUnavailablePtyModesExplicitly(RecordingMode mode)
     {
-        var config = new Config(); config.Value.SessionRecording.Mode = mode;
+        var config = new SessionRecordingTestsConfig(); config.Value.SessionRecording.Mode = mode;
         var service = new SessionRecordingService(config, new ExternalProcessRunner(), Repository(), NullLogger<SessionRecordingService>.Instance);
         await Assert.ThrowsAsync<NotSupportedException>(() => service.Record(Child("echo test", "echo test"), Host()));
     }
@@ -323,7 +323,7 @@ public sealed class SessionRecordingTests : IDisposable
     [Fact]
     public async Task RecorderRejectsInputCaptureExplicitly()
     {
-        var config = new Config(); config.Value.SessionRecording.CaptureInput = true;
+        var config = new SessionRecordingTestsConfig(); config.Value.SessionRecording.CaptureInput = true;
         var service = new SessionRecordingService(config, new ExternalProcessRunner(), Repository(), NullLogger<SessionRecordingService>.Instance);
         await Assert.ThrowsAsync<NotSupportedException>(() => service.Record(Child("echo test", "echo test"), Host()));
     }
@@ -344,7 +344,7 @@ public sealed class SessionRecordingTests : IDisposable
     {
         var repository = Repository();
         using var writer = repository.Create(Host()); writer.Append("test"); writer.Complete(0);
-        var handler = new SessionCommandHandler(repository, new Config());
+        var handler = new SessionCommandHandler(repository, new SessionRecordingTestsConfig());
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Execute("sessions", ["delete", writer.Metadata.Id, "--older", "30d"]));
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Execute("sessions", ["replay", writer.Metadata.Id, "--speed", "NaN"]));
         Assert.Single(repository.List());
@@ -359,25 +359,4 @@ public sealed class SessionRecordingTests : IDisposable
     }
 
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
-
-    private sealed class Config : IConfigRepository
-    {
-        public AppConfig Value { get; private set; } = new();
-        public AppConfig Load() => Value;
-        public void Save(AppConfig config) => Value = config;
-    }
-
-    private sealed class ObservedRunner : IExternalProcessRunner
-    {
-        private readonly ExternalProcessRunner inner = new();
-        public int ProcessId { get; private set; }
-        public bool CloseStandardOutput { get; init; }
-        public Process Start(ProcessStartInfo info)
-        {
-            var process = inner.Start(info); ProcessId = process.Id;
-            if (CloseStandardOutput) process.StandardOutput.Dispose();
-            return process;
-        }
-        public Task<ProcessResult> RunAsync(ProcessStartInfo info, CancellationToken cancellationToken = default) => inner.RunAsync(info, cancellationToken);
-    }
 }

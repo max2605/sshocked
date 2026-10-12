@@ -22,7 +22,7 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
             return info;
         }
 
-        Task<string> RunScanCommand(string command) => DockerSudo.RunAsync(processService, secrets, host, command);
+        Task<string> RunScanCommand(string command) => DockerSudo.Run(processService, secrets, host, command);
 
         var dockerInfoOutput = await RunScanCommand("docker info --format '{{json .}}' 2>/dev/null || echo 'DOCKER_NOT_AVAILABLE'");
         dockerInfoOutput = dockerInfoOutput.Trim();

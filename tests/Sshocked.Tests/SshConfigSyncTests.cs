@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -68,10 +68,10 @@ public sealed class SshConfigSyncTests
     [Fact]
     public void AutoExportSuppressesRepositoryAndWatcherFeedbackLoopsAndDisposeUnsubscribes()
     {
-        var repository = new MemoryRepository();
+        var repository = new SshConfigSyncTestsMemoryRepository();
         repository.Config.SshConfigSync.AutoExportOnChange = true;
         repository.Config.SshConfigSync.AutoImportOnChange = true;
-        var watcher = new FakeWatcher(); var exporter = new FakeExporter(); var importer = new FakeImporter();
+        var watcher = new SshConfigSyncTestsFakeWatcher(); var exporter = new SshConfigSyncTestsFakeExporter(); var importer = new SshConfigSyncTestsFakeImporter();
         var sync = new SshConfigSyncService(repository, importer, exporter, watcher, NullLogger<SshConfigSyncService>.Instance);
         sync.Initialize();
         repository.Update(config => config.Hosts.Add(Host("added", "new.example")));
@@ -85,33 +85,4 @@ public sealed class SshConfigSyncTests
     }
 
     private static ServerHost Host(string alias, string hostname) => new() { Id = alias + "-id", Alias = alias, HostName = hostname, User = "admin" };
-    private sealed class MemoryRepository : IConfigRepository
-    {
-        public AppConfig Config { get; } = new();
-        public event EventHandler? Saved;
-        public AppConfig Load() => Config;
-        public void Save(AppConfig config) => Saved?.Invoke(this, EventArgs.Empty);
-        public void Update(Action<AppConfig> update) { update(Config); Saved?.Invoke(this, EventArgs.Empty); }
-    }
-    private sealed class FakeImporter : ISshConfigImporter
-    {
-        public int Calls { get; private set; }
-        public List<ServerHost> Import(string? configPath = null) { Calls++; return []; }
-        public List<ServerHost> Parse(string configContent) => [];
-    }
-    private sealed class FakeExporter : ISshConfigExporter
-    {
-        public int Calls { get; private set; }
-        public SshConfigExportResult Export(IEnumerable<ServerHost> hosts, SshConfigSyncSettings settings, string? configPath = null)
-        { Calls++; return new(hosts.Count(), false, [], []); }
-    }
-    private sealed class FakeWatcher : ISshConfigWatcher
-    {
-        public event EventHandler? Changed;
-        public bool IsWatching { get; private set; }
-        public void StartWatching(IEnumerable<string> paths) => IsWatching = true;
-        public void StopWatching() => IsWatching = false;
-        public void Raise() => Changed?.Invoke(this, EventArgs.Empty);
-        public void Dispose() => StopWatching();
-    }
 }

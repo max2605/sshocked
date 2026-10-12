@@ -10,13 +10,13 @@ public sealed class SshKeyPickerService(ISshKeyDiscoveryService discovery, ICons
         var keys = discovery.ListAvailableKeys();
         console.WriteLine(discovery.GetAgentStatus().Message);
         console.WriteLine("Encrypted keys still need ssh-agent or a passphrase at connection time. Passphrases are never stored.");
-        var choices = new List<string> { "Use SSH default keys", "Enter path manually" };
-        if (keys.Count > 0) choices.Insert(0, "Pick from available keys");
-        if (!string.IsNullOrWhiteSpace(currentPath)) choices.Insert(0, "Keep current key");
+        var choices = new List<string> { SshKeyPickerLabels.UseDefaults, SshKeyPickerLabels.EnterManually };
+        if (keys.Count > 0) choices.Insert(0, SshKeyPickerLabels.PickAvailable);
+        if (!string.IsNullOrWhiteSpace(currentPath)) choices.Insert(0, SshKeyPickerLabels.KeepCurrent);
         var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("[green]SSH identity[/]:").AddChoices(choices));
-        if (choice == "Keep current key") return currentPath;
-        if (choice == "Use SSH default keys") return null;
-        if (choice == "Enter path manually")
+        if (choice == SshKeyPickerLabels.KeepCurrent) return currentPath;
+        if (choice == SshKeyPickerLabels.UseDefaults) return null;
+        if (choice == SshKeyPickerLabels.EnterManually)
         {
             var path = AnsiConsole.Prompt(new TextPrompt<string>("[green]Identity file path[/] (empty = default):")
                 .DefaultValue(currentPath ?? string.Empty).AllowEmpty());

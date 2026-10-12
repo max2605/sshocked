@@ -1,6 +1,5 @@
-using System.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -106,9 +105,9 @@ public sealed class FileTransferTests : IDisposable
     [Fact]
     public async Task TransferInheritsConsolePropagatesLeaseEnvironmentAndDisposesLease()
     {
-        var runner = new Runner();
-        var processes = new Processes();
-        var audit = new Audit();
+        var runner = new FileTransferTestsRunner();
+        var processes = new FileTransferTestsProcesses();
+        var audit = new FileTransferTestsAudit();
         var service = new FileTransferService(processes, runner, audit, NullLogger<FileTransferService>.Instance);
         var local = Path.Combine(directory, "file.txt");
         File.WriteAllText(local, "test");
@@ -123,10 +122,10 @@ public sealed class FileTransferTests : IDisposable
     [Fact]
     public async Task GroupContinuesAfterFailedHostAndReportsPartialSuccess()
     {
-        var runner = new Runner();
+        var runner = new FileTransferTestsRunner();
         runner.Handler = _ => Task.FromResult(new ProcessResult(runner.Calls.Count == 1 ? 1 : 0, "", ""));
-        var audit = new Audit();
-        var service = new FileTransferService(new Processes(), runner, audit, NullLogger<FileTransferService>.Instance);
+        var audit = new FileTransferTestsAudit();
+        var service = new FileTransferService(new FileTransferTestsProcesses(), runner, audit, NullLogger<FileTransferService>.Instance);
         var local = Path.Combine(directory, "file.txt");
         File.WriteAllText(local, "test");
         var results = await service.UploadToGroup(new[] { Host("one"), Host("two") }, local, "/tmp/file.txt");
@@ -138,8 +137,8 @@ public sealed class FileTransferTests : IDisposable
     [Fact]
     public async Task MissingLocalFileFailsBeforeStartingAnyProcess()
     {
-        var runner = new Runner();
-        var service = new FileTransferService(new Processes(), runner, new Audit(), NullLogger<FileTransferService>.Instance);
+        var runner = new FileTransferTestsRunner();
+        var service = new FileTransferService(new FileTransferTestsProcesses(), runner, new FileTransferTestsAudit(), NullLogger<FileTransferService>.Instance);
         await Assert.ThrowsAsync<FileNotFoundException>(() => service.UploadFile(Host(), Path.Combine(directory, "missing"), "~"));
         Assert.Empty(runner.Calls);
     }
@@ -147,8 +146,8 @@ public sealed class FileTransferTests : IDisposable
     [Fact]
     public async Task BrowseFailsOnExitCodeInsteadOfTreatingStderrAsFiles()
     {
-        var runner = new Runner { Handler = _ => Task.FromResult(new ProcessResult(1, "", "permission denied")) };
-        var service = new FileTransferService(new Processes(), runner, new Audit(), NullLogger<FileTransferService>.Instance);
+        var runner = new FileTransferTestsRunner { Handler = _ => Task.FromResult(new ProcessResult(1, "", "permission denied")) };
+        var service = new FileTransferService(new FileTransferTestsProcesses(), runner, new FileTransferTestsAudit(), NullLogger<FileTransferService>.Instance);
         var exception = await Assert.ThrowsAsync<ProcessExecutionException>(() => service.ListRemoteDirectory(Host(), "~/a'b; touch nope"));
         Assert.Contains("permission denied", exception.Message);
         Assert.Contains("'\"'\"'", runner.Calls[0].ArgumentList[^1]);
@@ -162,39 +161,4 @@ public sealed class FileTransferTests : IDisposable
     public void RemoteNavigationHandlesRootAndHome(string path, string parent) => Assert.Equal(parent, FileTransferUi.ParentPath(path));
 
     public void Dispose() => Directory.Delete(directory, true);
-
-    private sealed class Runner : IExternalProcessRunner
-    {
-        public List<ProcessStartInfo> Calls { get; } = [];
-        public Func<CancellationToken, Task<ProcessResult>> Handler { get; set; } = _ => Task.FromResult(new ProcessResult(0, "", ""));
-        public Process Start(ProcessStartInfo info) => throw new NotSupportedException();
-        public Task<ProcessResult> RunAsync(ProcessStartInfo info, CancellationToken cancellationToken = default)
-        { Calls.Add(info); return Handler(cancellationToken); }
-    }
-
-    private sealed class Processes : IProcessService
-    {
-        public List<Lease> Leases { get; } = [];
-        public Task RunSsh(ServerHost host) => throw new NotSupportedException();
-        public Task<string> RunSshCommand(ServerHost host, string command) => throw new NotSupportedException();
-        public Task RunSshInteractive(ServerHost host, string command) => throw new NotSupportedException();
-        public Task<ISshConnectionLease> PrepareConnectionAsync(ServerHost host, CancellationToken ct = default)
-        { var lease = new Lease(host); Leases.Add(lease); return Task.FromResult<ISshConnectionLease>(lease); }
-    }
-
-    private sealed class Lease(ServerHost host) : ISshConnectionLease
-    {
-        public ServerHost Host => host;
-        public IReadOnlyDictionary<string, string?> Environment { get; } = new Dictionary<string, string?> { ["SSH_ASKPASS"] = "lease-askpass" };
-        public bool Disposed { get; private set; }
-        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
-    }
-
-    private sealed class Audit : IAuditService
-    {
-        public List<AuditEntry> Entries { get; } = [];
-        public void Record(AuditEntry entry) => Entries.Add(entry);
-        public IReadOnlyList<AuditEntry> Query(AuditQuery query) => Entries;
-        public void Clear() => Entries.Clear();
-    }
 }

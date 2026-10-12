@@ -6,13 +6,13 @@ namespace Sshocked.Services;
 /// <summary>Feeds sudo credentials through protected SSH stdin, never through remote command text.</summary>
 internal static class DockerSudo
 {
-    public static async Task<string> RunAsync(IProcessService processes, ISecretProviderRegistry secrets, ServerHost host, string command)
+    public static async Task<string> Run(IProcessService processes, ISecretProviderRegistry secrets, ServerHost host, string command)
     {
         var password = host.SudoPassword;
         if (host.SudoPasswordSecretRef is { } reference)
         {
             if (reference.SecretType != SecretType.Password) throw new ArgumentException("Sudo password reference must use Password.");
-            var secret = await secrets.ResolveAsync(reference);
+            var secret = await secrets.Resolve(reference);
             if (!secret.Success || secret.Value is null) throw new InvalidOperationException(secret.ErrorMessage ?? "Could not resolve sudo password.");
             password = secret.Value;
         }

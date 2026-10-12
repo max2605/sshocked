@@ -1,10 +1,9 @@
-using System.Diagnostics;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sshocked.Interfaces;
+
 using Sshocked.Models;
 using Sshocked.Services;
 
@@ -15,17 +14,17 @@ public sealed class SecretProviderTests
     [Fact]
     public async Task RegistryUsesDefaultProviderAndCachesValuesOnlyInMemory()
     {
-        var repository = new FakeRepository();
+        var repository = new SecretProviderTestsFakeRepository();
         repository.Config.SecretProviders.Add(new() { Name = "prod", ProviderType = "Fake", IsDefault = true, CacheTtlSeconds = 60 });
-        var factory = new FakeFactory();
+        var factory = new SecretProviderTestsFakeFactory();
         var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
         var reference = new SecretRef { SecretId = "key", SecretType = SecretType.SshPrivateKey };
-        Assert.True((await registry.ResolveAsync(reference)).Success);
-        Assert.True((await registry.ResolveAsync(reference)).Success);
+        Assert.True((await registry.Resolve(reference)).Success);
+        Assert.True((await registry.Resolve(reference)).Success);
         Assert.Equal(1, factory.Provider.Accesses);
         Assert.Equal(0, repository.Saves);
         registry.ClearCache();
-        await registry.ResolveAsync(reference);
+        await registry.Resolve(reference);
         Assert.Equal(2, factory.Provider.Accesses);
         Assert.DoesNotContain("super-secret", new SecretResult { Success = true, Value = "super-secret" }.ToString());
     }
@@ -33,25 +32,25 @@ public sealed class SecretProviderTests
     [Fact]
     public async Task DisablingCacheImmediatelyUsesRotatedValue()
     {
-        var repository = new FakeRepository();
+        var repository = new SecretProviderTestsFakeRepository();
         var config = new SecretProviderConfig { Name = "prod", ProviderType = "Fake", IsDefault = true, CacheTtlSeconds = 60 };
         repository.Config.SecretProviders.Add(config);
-        var factory = new FakeFactory();
+        var factory = new SecretProviderTestsFakeFactory();
         var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
         var reference = new SecretRef { SecretId = "password", SecretType = SecretType.Password };
-        await registry.ResolveAsync(reference);
+        await registry.Resolve(reference);
         config.CacheTtlSeconds = 0;
         factory.Provider.Value = "rotated";
-        Assert.Equal("rotated", (await registry.ResolveAsync(reference)).Value);
+        Assert.Equal("rotated", (await registry.Resolve(reference)).Value);
         Assert.Equal(2, factory.Provider.Accesses);
     }
 
     [Fact]
     public void MultipleDefaultsOrMissingNamedProviderAreRejected()
     {
-        var repository = new FakeRepository();
+        var repository = new SecretProviderTestsFakeRepository();
         repository.Config.SecretProviders.AddRange([new() { Name = "one", IsDefault = true }, new() { Name = "two", IsDefault = true }]);
-        var registry = new SecretProviderRegistry(repository, [new FakeFactory()], NullLogger<SecretProviderRegistry>.Instance);
+        var registry = new SecretProviderRegistry(repository, [new SecretProviderTestsFakeFactory()], NullLogger<SecretProviderRegistry>.Instance);
         Assert.Throws<InvalidOperationException>(() => registry.GetProvider());
         Assert.Throws<InvalidOperationException>(() => registry.GetProvider("missing"));
     }
@@ -69,7 +68,7 @@ public sealed class SecretProviderTests
     [Fact]
     public async Task TemporaryPrivateKeyIsReadableAndDeletedOnDispose()
     {
-        var file = await SecretKeyFile.CreateAsync("-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----", SecretType.SshPrivateKey);
+        var file = await SecretKeyFile.Create("-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----", SecretType.SshPrivateKey);
         var path = file.Path;
         Assert.Contains("BEGIN OPENSSH PRIVATE KEY", await File.ReadAllTextAsync(path));
         if (OperatingSystem.IsWindows())
@@ -95,7 +94,7 @@ public sealed class SecretProviderTests
         var exported = certificate.Export(X509ContentType.Pkcs12);
         try
         {
-            await using var file = await SecretKeyFile.CreateAsync(Convert.ToBase64String(exported), SecretType.Certificate);
+            await using var file = await SecretKeyFile.Create(Convert.ToBase64String(exported), SecretType.Certificate);
             Assert.StartsWith("-----BEGIN PRIVATE KEY-----", await File.ReadAllTextAsync(file.Path));
         }
         finally { CryptographicOperations.ZeroMemory(exported); }
@@ -104,13 +103,13 @@ public sealed class SecretProviderTests
     [Fact]
     public async Task ConnectionUsesTemporaryKeyAndCleansItAfterFailedSshWithoutMutatingHost()
     {
-        var repository = new FakeRepository();
+        var repository = new SecretProviderTestsFakeRepository();
         repository.Config.SecretProviders.Add(new() { Name = "prod", ProviderType = "Fake", IsDefault = true });
-        var factory = new FakeFactory();
+        var factory = new SecretProviderTestsFakeFactory();
         factory.Provider.Value = "-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----";
         var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
         string? keyPath = null;
-        var runner = new InspectRunner(info =>
+        var runner = new SecretProviderTestsInspectRunner(info =>
         {
             keyPath = info.ArgumentList[info.ArgumentList.IndexOf("-i") + 1];
             Assert.True(File.Exists(keyPath));
@@ -128,9 +127,9 @@ public sealed class SecretProviderTests
     [Fact]
     public async Task RemoteCommandFailureHasSeparateStdoutStderrAndLegacyWrapperThrows()
     {
-        var repository = new FakeRepository();
-        var registry = new SecretProviderRegistry(repository, [new FakeFactory()], NullLogger<SecretProviderRegistry>.Instance);
-        var runner = new InspectRunner(_ => new ProcessResult(42, "partial-output", "permission denied"));
+        var repository = new SecretProviderTestsFakeRepository();
+        var registry = new SecretProviderRegistry(repository, [new SecretProviderTestsFakeFactory()], NullLogger<SecretProviderRegistry>.Instance);
+        var runner = new SecretProviderTestsInspectRunner(_ => new ProcessResult(42, "partial-output", "permission denied"));
         var process = new ProcessService(NullLogger<ProcessService>.Instance, runner,
             new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance), registry);
         var host = new ServerHost { User = "user", HostName = "vm" };
@@ -146,13 +145,13 @@ public sealed class SecretProviderTests
     [InlineData(true)]
     public async Task VaultCredentialsUseCheckedTunnelCommandsEvenWhenStoredBastionAuthIsAad(bool password)
     {
-        var repository = new FakeRepository();
+        var repository = new SecretProviderTestsFakeRepository();
         repository.Config.SecretProviders.Add(new() { Name = "prod", ProviderType = "Fake", IsDefault = true });
-        var factory = new FakeFactory();
+        var factory = new SecretProviderTestsFakeFactory();
         factory.Provider.Value = password ? "private-login-value" : "-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----";
         var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
-        var bastion = new CredentialBastion(password ? BastionAuthType.Password : BastionAuthType.SshKey);
-        var runner = new InspectRunner(info =>
+        var bastion = new SecretProviderTestsCredentialBastion(password ? BastionAuthType.Password : BastionAuthType.SshKey);
+        var runner = new SecretProviderTestsInspectRunner(info =>
         {
             Assert.Equal("ssh", info.FileName);
             Assert.Contains("user@127.0.0.1", info.ArgumentList);
@@ -166,9 +165,17 @@ public sealed class SecretProviderTests
         var process = new ProcessService(NullLogger<ProcessService>.Instance, runner, bastion, registry);
         var host = new ServerHost
         {
-            User = "user", HostName = "vm", AuthType = AuthType.AzureBastion,
-            AzureBastion = new() { AuthType = BastionAuthType.Aad, ConnectionMode = BastionConnectionMode.Native,
-                BastionName = "bastion", BastionResourceGroup = "rg", TargetResourceId = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm" }
+            User = "user",
+            HostName = "vm",
+            AuthType = AuthType.AzureBastion,
+            AzureBastion = new()
+            {
+                AuthType = BastionAuthType.Aad,
+                ConnectionMode = BastionConnectionMode.Native,
+                BastionName = "bastion",
+                BastionResourceGroup = "rg",
+                TargetResourceId = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm"
+            }
         };
         var reference = new SecretRef { SecretId = "credential", SecretType = password ? SecretType.Password : SecretType.SshPrivateKey };
         if (password) host.PasswordSecretRef = reference; else host.KeySecretRef = reference;
@@ -178,62 +185,5 @@ public sealed class SecretProviderTests
         if (!password) Assert.False(File.Exists(bastion.KeyPath));
         Assert.Equal(BastionAuthType.Aad, host.AzureBastion.AuthType);
         Assert.Null(host.IdentityFile);
-    }
-
-    private sealed class CredentialBastion(BastionAuthType expectedAuth) : IBastionService
-    {
-        public CredentialTunnel Tunnel { get; } = new();
-        public string? KeyPath { get; private set; }
-        public Task<IBastionTunnel> CreateTunnelAsync(AzureBastionConfig config, CancellationToken ct = default)
-        {
-            Assert.Equal(expectedAuth, config.AuthType);
-            KeyPath = config.SshKeyPath;
-            return Task.FromResult<IBastionTunnel>(Tunnel);
-        }
-        public Task<BastionCliInfo> CheckPrerequisitesAsync(CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<BastionVmInfo>> ListTargetVmsAsync(string bastionName, string resourceGroup, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<int> RunNativeSshAsync(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null) => throw new InvalidOperationException("Effective vault key/password credentials must use a checked tunnel command.");
-        public Task<ProcessResult> RunNativeCommandAsync(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null) => throw new InvalidOperationException("Effective vault key/password credentials must use a checked tunnel command.");
-    }
-
-    private sealed class CredentialTunnel : IBastionTunnel
-    {
-        public int LocalPort => 42522;
-        public bool IsReady => true;
-        public bool Disposed { get; private set; }
-        public Task WaitUntilReadyAsync(TimeSpan timeout, CancellationToken ct = default) => Task.CompletedTask;
-        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
-    }
-
-    private sealed class InspectRunner(Func<ProcessStartInfo, ProcessResult> inspect) : IExternalProcessRunner
-    {
-        public Process Start(ProcessStartInfo startInfo) => throw new NotSupportedException();
-        public Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken = default) => Task.FromResult(inspect(startInfo));
-    }
-
-    private sealed class FakeRepository : IConfigRepository
-    {
-        public AppConfig Config { get; } = new();
-        public int Saves { get; private set; }
-        public AppConfig Load() => Config;
-        public void Save(AppConfig config) => Saves++;
-    }
-
-    private sealed class FakeFactory : ISecretProviderFactory
-    {
-        public FakeProvider Provider { get; } = new();
-        public string ProviderType => "Fake";
-        public ISecretProvider Create(SecretProviderConfig config) => Provider;
-    }
-
-    private sealed class FakeProvider : ISecretProvider
-    {
-        public string Value { get; set; } = "super-secret";
-        public int Accesses { get; private set; }
-        public string ProviderName => "prod";
-        public Task<SecretResult> GetSecretAsync(string secretId, SecretType type, CancellationToken ct = default)
-        { Accesses++; return Task.FromResult(new SecretResult { Success = true, Value = Value }); }
-        public Task<List<SecretMetadata>> ListSecretsAsync(SecretType? filter = null, CancellationToken ct = default) => Task.FromResult(new List<SecretMetadata>());
-        public Task<bool> TestConnectionAsync(CancellationToken ct = default) => Task.FromResult(true);
     }
 }

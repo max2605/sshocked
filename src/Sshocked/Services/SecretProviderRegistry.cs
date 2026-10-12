@@ -20,7 +20,7 @@ public sealed class SecretProviderRegistry(IConfigRepository configRepository, I
         return providers.GetOrAdd(ConfigurationKey(config), _ => factory.Create(config));
     }
 
-    public async Task<SecretResult> ResolveAsync(SecretRef reference, CancellationToken ct = default)
+    public async Task<SecretResult> Resolve(SecretRef reference, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(reference.SecretId)) throw new ArgumentException("Secret identifier is required.");
@@ -34,7 +34,7 @@ public sealed class SecretProviderRegistry(IConfigRepository configRepository, I
         }
         // Expired entries are removed before retrieval so values do not survive failed rotations.
         cache.TryRemove(key, out _);
-        var result = await GetProvider(config.Name).GetSecretAsync(reference.SecretId, reference.SecretType, ct);
+        var result = await GetProvider(config.Name).GetSecret(reference.SecretId, reference.SecretType, ct);
         logger.LogInformation("Secret access: provider {Provider}, identifier {SecretId}, user {User}, success {Success}", config.Name, reference.SecretId, Environment.UserName, result.Success);
         AuditAccess(config.Name, reference.SecretId, result.Success);
         if (result.Success && config.CacheTtlSeconds > 0)

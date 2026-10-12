@@ -25,12 +25,12 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
         if (native)
         {
             if (recorder?.ShouldRecord(host) == true) throw new NotSupportedException("Recording native Azure Bastion sessions is unavailable. Select tunnel mode with SSH key/password authentication to record output.");
-            exit = await bastionService.RunNativeSessionAsync(connection.Host, initialCommand, ct, connection.Environment, onStarted);
+            exit = await bastionService.RunNativeSession(connection.Host, initialCommand, ct, connection.Environment, onStarted);
         }
         else
         {
             var info = CreateSshStartInfo(connection, captureOutput: false, tty: initialCommand != null, initialCommand);
-            exit = recorder?.ShouldRecord(host) == true ? await recorder.Record(info, host, ct, onStarted) : (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
+            exit = recorder?.ShouldRecord(host) == true ? await recorder.Record(info, host, ct, onStarted) : (await runner.RunSession(info, onStarted, ct)).ExitCode;
         }
         if (initialCommand != null && auditCommand) RecordCommand(host, initialCommand, exit);
         logger.LogInformation("SSH session to {Alias} exited with code {ExitCode}", host.Alias, exit);
@@ -59,11 +59,11 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             var aad = !sendInput && host.AzureBastion?.AuthType == BastionAuthType.Aad && host.KeySecretRef is null && host.PasswordSecretRef is null;
             await using var connection = await connectionPreparer.Prepare(host, useTunnel: !aad, ct);
             ProcessResult result;
-            if (aad) result = await bastionService.RunNativeCommandAsync(connection.Host, command, ct, connection.Environment);
+            if (aad) result = await bastionService.RunNativeCommand(connection.Host, command, ct, connection.Environment);
             else
             {
                 var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
-                result = sendInput ? await runner.RunWithInputAsync(info, input!, ct) : await runner.RunAsync(info, ct);
+                result = sendInput ? await runner.RunWithInput(info, input!, ct) : await runner.Run(info, ct);
             }
             RecordCommand(host, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
             return result;
@@ -99,7 +99,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
         new ProcessResult(exitCode, "", "").EnsureSuccess("Interactive remote SSH command");
     }
 
-    public Task<ISshConnectionLease> PrepareConnectionAsync(ServerHost host, CancellationToken ct = default) => connectionPreparer.Prepare(host, true, ct);
+    public Task<ISshConnectionLease> PrepareConnection(ServerHost host, CancellationToken ct = default) => connectionPreparer.Prepare(host, true, ct);
 
     private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)
     {

@@ -32,14 +32,15 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
         while (true)
         {
             var action = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("[green]Secret references[/]")
-                .AddChoices("SSH private key", "SSH password", "Sudo password", "Done"));
-            if (action == "Done") return;
-            if (action == "SSH private key")
+                .AddChoices(SecretConfigurationLabels.PrivateKey, SecretConfigurationLabels.SshPassword,
+                    SecretConfigurationLabels.SudoPassword, SecretConfigurationLabels.Done));
+            if (action == SecretConfigurationLabels.Done) return;
+            if (action == SecretConfigurationLabels.PrivateKey)
             {
                 host.KeySecretRef = Pick(SecretType.SshPrivateKey, host.KeySecretRef);
                 if (host.KeySecretRef != null) { host.PasswordSecretRef = null; host.IdentityFile = null; if (host.AzureBastion == null) host.AuthType = AuthType.SshKey; }
             }
-            else if (action == "SSH password")
+            else if (action == SecretConfigurationLabels.SshPassword)
             {
                 host.PasswordSecretRef = Pick(SecretType.Password, host.PasswordSecretRef);
                 if (host.PasswordSecretRef != null) { host.KeySecretRef = null; if (host.AzureBastion == null) host.AuthType = AuthType.Password; }
@@ -51,9 +52,10 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
     public SecretRef? Pick(SecretType type, SecretRef? current = null)
     {
         var action = AnsiConsole.Prompt(new SelectionPrompt<string>().Title($"[green]{type} secret[/]")
-            .AddChoices("Keep current reference", "No secret reference", "Choose from provider", "Enter secret identifier"));
-        if (action == "Keep current reference") return current;
-        if (action == "No secret reference") return null;
+            .AddChoices(SecretConfigurationLabels.KeepCurrent, SecretConfigurationLabels.NoReference,
+                SecretConfigurationLabels.ChooseProvider, SecretConfigurationLabels.EnterIdentifier));
+        if (action == SecretConfigurationLabels.KeepCurrent) return current;
+        if (action == SecretConfigurationLabels.NoReference) return null;
         var config = ChooseProvider();
         if (config == null) return current;
         var actualType = type;
@@ -61,11 +63,11 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
             actualType = AnsiConsole.Prompt(new SelectionPrompt<SecretType>().Title("[green]Private key format[/]")
                 .AddChoices(SecretType.SshPrivateKey, SecretType.Certificate).DefaultValue(current?.SecretType ?? SecretType.SshPrivateKey));
         string id;
-        if (action == "Choose from provider")
+        if (action == SecretConfigurationLabels.ChooseProvider)
         {
             try
             {
-                var secrets = registry.GetProvider(config.Name).ListSecretsAsync(actualType).GetAwaiter().GetResult();
+                var secrets = registry.GetProvider(config.Name).ListSecrets(actualType).GetAwaiter().GetResult();
                 if (secrets.Count == 0) { console.WriteLine("No matching secret names found. Tag secrets with sshocked-type or enter their identifier manually."); return current; }
                 id = AnsiConsole.Prompt(new SelectionPrompt<SecretMetadata>().Title("[green]Secret name[/]")
                     .UseConverter(secret => Markup.Escape(secret.Name)).AddChoices(secrets)).Id;
@@ -111,8 +113,11 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
         console.WriteLine("Use az login, managed identity, or Azure environment credentials. Client secrets/certificates are supplied through environment variables.");
         return new SecretProviderConfig
         {
-            Name = name, ProviderType = type, VaultUri = vault,
-            TenantId = Optional("Tenant ID", current?.TenantId), ClientId = Optional("Client/managed identity ID", current?.ClientId),
+            Name = name,
+            ProviderType = type,
+            VaultUri = vault,
+            TenantId = Optional("Tenant ID", current?.TenantId),
+            ClientId = Optional("Client/managed identity ID", current?.ClientId),
             CacheTtlSeconds = AnsiConsole.Prompt(new TextPrompt<int>("[green]Memory cache TTL in seconds[/] (0 disables cache):")
                 .DefaultValue(current?.CacheTtlSeconds ?? 60).Validate(value => value is >= 0 and <= 3600 ? ValidationResult.Success() : ValidationResult.Error("[red]Use 0 to 3600 seconds.[/]"))),
             IsDefault = AnsiConsole.Confirm("Make this the default secret provider?", current?.IsDefault ?? !registry.GetConfigurations().Any(c => c.IsDefault))
@@ -175,7 +180,7 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
     private async Task TestConnection()
     {
         var provider = ChooseProvider();
-        if (provider != null) console.WriteLine(await registry.GetProvider(provider.Name).TestConnectionAsync()
+        if (provider != null) console.WriteLine(await registry.GetProvider(provider.Name).TestConnection()
             ? "Provider connection succeeded." : "Connection failed. Verify Azure login and Key Vault list permissions.");
     }
 
@@ -183,7 +188,7 @@ public sealed class SecretConfigurationUi(IConfigRepository repository, ISecretP
     {
         var provider = ChooseProvider();
         if (provider == null) return;
-        var secrets = await registry.GetProvider(provider.Name).ListSecretsAsync();
+        var secrets = await registry.GetProvider(provider.Name).ListSecrets();
         foreach (var secret in secrets) console.WriteLine($"{secret.Name} ({secret.SecretType?.ToString() ?? "untyped"})");
         console.WriteLine($"{secrets.Count} secret name(s).");
     }
