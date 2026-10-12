@@ -67,13 +67,40 @@ public sealed class AzureBastionTests
     {
         var runner = new FakeRunner();
         runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
-        runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"}]", ""));
+        runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"},{\"name\":\"ssh\"}]", ""));
         runner.Results.Enqueue(new(0, "{}", ""));
         runner.Results.Enqueue(new(17, "", ""));
         var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
         Assert.Equal(17, await service.RunNativeSshAsync(BastionHost()));
         Assert.False(runner.Starts[^1].RedirectStandardOutput);
         Assert.False(runner.Starts[^1].RedirectStandardError);
+    }
+
+    [Theory]
+    [InlineData(BastionAuthType.SshKey, false)]
+    [InlineData(BastionAuthType.Password, false)]
+    [InlineData(BastionAuthType.Aad, false)]
+    [InlineData(BastionAuthType.SshKey, true)]
+    [InlineData(BastionAuthType.Password, true)]
+    [InlineData(BastionAuthType.Aad, true)]
+    public async Task AllNativeAuthenticationTypesRequireTheSshExtension(BastionAuthType authType, bool command)
+    {
+        var runner = new FakeRunner();
+        runner.Results.Enqueue(new(0, "{\"azure-cli\":\"2.62.0\"}", ""));
+        runner.Results.Enqueue(new(0, "[{\"name\":\"bastion\"}]", ""));
+        runner.Results.Enqueue(new(0, "{}", ""));
+        // A sentinel success prevents an unrelated empty-queue failure from passing this test.
+        runner.Results.Enqueue(new(0, "", ""));
+        var host = BastionHost();
+        host.AzureBastion!.AuthType = authType;
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            if (command) await service.RunNativeCommandAsync(host, "true");
+            else await service.RunNativeSshAsync(host);
+        });
+        Assert.Contains("az extension add --name ssh", error.Message);
+        Assert.DoesNotContain(runner.Starts, start => start.ArgumentList.Contains("bastion") && start.ArgumentList.Contains("network"));
     }
 
     [Fact]

@@ -51,7 +51,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     public async Task<int> RunNativeSessionAsync(ServerHost host, string? command, CancellationToken ct, IReadOnlyDictionary<string, string?>? environment, Func<Task>? onStarted)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
-        await EnsureReadyAsync(config, config.AuthType == BastionAuthType.Aad, ct);
+        await EnsureReadyAsync(config, true, ct);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command), captureOutput: false);
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         logger.LogInformation("Connecting to {Alias} through Azure Bastion native SSH", host.Alias);
@@ -61,7 +61,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     public async Task<ProcessResult> RunNativeCommandAsync(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
-        await EnsureReadyAsync(config, config.AuthType == BastionAuthType.Aad, ct);
+        await EnsureReadyAsync(config, true, ct);
         var info = AzureCliCommand.Create(BuildNativeArguments(host, command, tty: false));
         if (environment != null) foreach (var variable in environment) info.Environment[variable.Key] = variable.Value;
         return await runner.RunAsync(info, ct);
@@ -111,7 +111,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         Validate(config);
         var prerequisites = await CheckPrerequisitesAsync(ct);
         if (prerequisites.ErrorMessage != null) throw new InvalidOperationException(prerequisites.ErrorMessage);
-        if (needsSshExtension && !prerequisites.HasSshExtension) throw new InvalidOperationException("Install AAD SSH support: az extension add --name ssh");
+        if (needsSshExtension && !prerequisites.HasSshExtension) throw new InvalidOperationException("Install native SSH support: az extension add --name ssh");
         if (!string.IsNullOrWhiteSpace(config.TenantId))
         {
             var args = new List<string> { "account", "show", "--query", "tenantId", "--output", "tsv" };
