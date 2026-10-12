@@ -185,6 +185,8 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         Console.WriteLine("  ssk --version, -v          Show version information");
         Console.WriteLine("  ssk history [options]     Query audit events; --output json|jsonl|csv");
         Console.WriteLine("  ssk audit status|enable|disable|settings  Configure audit logging");
+        Console.WriteLine("  ssk sessions list|replay|export|delete   Manage output recordings");
+        Console.WriteLine("  ssk sessions status|enable|disable      Configure recording policy");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  ssk prod-db-01             Connect to server 'prod-db-01'");

@@ -13,4 +13,5 @@ public sealed class AppConfig
     public SshConfigSyncSettings SshConfigSync { get; set; } = new();
     public List<SecretProviderConfig> SecretProviders { get; set; } = [];
     public GlobalHooks GlobalHooks { get; set; } = new();
+    public SessionRecordingSettings SessionRecording { get; set; } = new();
 }

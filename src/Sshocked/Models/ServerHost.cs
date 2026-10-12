@@ -23,6 +23,7 @@ public sealed class ServerHost
     public SecretRef? PasswordSecretRef { get; set; }
     public SecretRef? SudoPasswordSecretRef { get; set; }
     public ConnectionHooks? Hooks { get; set; }
+    public bool? RecordSession { get; set; }
 
     [JsonIgnore]
     public bool UsesAzureBastion => AzureBastion is not null;

@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null) : IProcessService
+public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null, ISessionRecordingService? recorder = null) : IProcessService
 {
     public async Task RunSsh(ServerHost host)
     {
@@ -23,12 +23,13 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
         int exit;
         if (native)
         {
+            if (recorder?.ShouldRecord(host) == true) throw new NotSupportedException("Recording native Azure Bastion sessions is unavailable. Select tunnel mode with SSH key/password authentication to record output.");
             exit = await bastionService.RunNativeSessionAsync(connection.Host, initialCommand, ct, connection.Environment, onStarted);
         }
         else
         {
             var info = CreateSshStartInfo(connection, captureOutput: false, tty: initialCommand != null, initialCommand);
-            exit = (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
+            exit = recorder?.ShouldRecord(host) == true ? await recorder.Record(info, host, ct, onStarted) : (await runner.RunSessionAsync(info, onStarted, ct)).ExitCode;
         }
         if (initialCommand != null) RecordCommand(host, initialCommand, exit);
         logger.LogInformation("SSH session to {Alias} exited with code {ExitCode}", host.Alias, exit);

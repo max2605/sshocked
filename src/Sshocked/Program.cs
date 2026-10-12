@@ -75,6 +75,10 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<IRecentConnectionService, RecentConnectionService>();
     services.AddSingleton<IAuditService, AuditService>();
     services.AddSingleton<IHookExecutorService, HookExecutorService>();
+    services.AddSingleton<SessionRepository>();
+    services.AddSingleton<ISessionRecordingService, SessionRecordingService>();
+    services.AddSingleton<IManagementCommandHandler, SessionCommandHandler>();
+    services.AddSingleton<SessionRecordingConfigurationUi>();
     services.AddSingleton<IManagementCommandHandler, AuditCommandService>();
     services.AddSingleton<IQuickAccessMenuService, QuickAccessMenuService>();
     services.AddSingleton<ISshConfigImporter, SshConfigImporter>();
