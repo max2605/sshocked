@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Sshocked.Interfaces;
@@ -11,6 +9,7 @@ public sealed class ContainerGroupService(
     IProcessService processService,
     ITerminalLauncherService terminals,
     IConsoleHelperService consoleHelper,
+    ISecretProviderRegistry secrets,
     ILogger<ContainerGroupService> logger) : IContainerGroupService
 {
     public ServerHost? FindParentServer(AppConfig config, ContainerModel container)
@@ -74,9 +73,8 @@ public sealed class ContainerGroupService(
 
             try
             {
-                var sudo = BuildSudoPrefix(server.SudoPassword);
-                var dockerCommand = $"{sudo}docker exec {container.Name} {command}";
-                var output = await processService.RunSshCommand(server, dockerCommand);
+                var dockerCommand = $"docker exec -- {DockerCommandSyntax.QuoteContainerName(container.Name)} {command}";
+                var output = await DockerSudo.RunAsync(processService, secrets, server, dockerCommand);
                 Console.Write(output);
 
                 if (!output.EndsWith('\n'))
@@ -92,16 +90,6 @@ public sealed class ContainerGroupService(
             AnsiConsole.WriteLine();
         }
 
-        await Task.CompletedTask;
-    }
-
-    private static string BuildSudoPrefix(string? sudoPassword)
-    {
-        if (string.IsNullOrEmpty(sudoPassword))
-            return "sudo ";
-
-        var escaped = sudoPassword.Replace("'", "'\\''");
-        return $"echo '{escaped}' | sudo -S ";
     }
 
     private static void EnsureSudoPassword(ServerHost host)
@@ -118,20 +106,4 @@ public sealed class ContainerGroupService(
         }
     }
 
-    private static string DetectLinuxTerminal()
-    {
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KONSOLE_VERSION")))
-            return "konsole --new-tab -e";
-
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GNOME_TERMINAL_SCREEN")))
-            return "gnome-terminal --";
-
-        if (Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")?.Contains("XFCE", StringComparison.OrdinalIgnoreCase) == true)
-            return "xfce4-terminal -e";
-
-        if (Environment.GetEnvironmentVariable("DESKTOP_SESSION")?.Contains("LXDE", StringComparison.OrdinalIgnoreCase) == true)
-            return "lxterminal -e";
-
-        return "x-terminal-emulator -e";
-    }
 }

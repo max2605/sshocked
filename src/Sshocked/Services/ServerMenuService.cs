@@ -44,6 +44,10 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
         while (nav.Current == ViewType.ServerDetail && !shouldExit)
         {
+            config = configRepository.Load();
+            var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+            if (currentHost is null) return;
+            host = currentHost;
             AnsiConsole.Clear();
             chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
             RenderServerHeader(host);
@@ -184,7 +188,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
     private async Task ScanDockerForHost(ServerHost host)
     {
-        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null)
+        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null && string.IsNullOrEmpty(host.SshPassword))
         {
             AnsiConsole.MarkupLine("[yellow]Docker scan is not supported for password-authenticated hosts.[/]");
             AnsiConsole.MarkupLine("[grey]Use SSH key or agent authentication to enable Docker scanning.[/]");

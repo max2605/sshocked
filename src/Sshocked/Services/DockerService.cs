@@ -13,8 +13,7 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
 
         var info = new DockerHostInfo();
 
-        // Password auth doesn't support non-interactive remote commands
-        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null)
+        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null && string.IsNullOrEmpty(host.SshPassword))
         {
             logger.LogInformation("Skipping Docker scan for {Alias}: password auth not supported for non-interactive commands", host.Alias);
             info.DockerAvailable = false;
@@ -23,18 +22,9 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
             return info;
         }
 
-        var sudo = host.SudoPasswordSecretRef is null ? BuildSudoPrefix(host.SudoPassword) : "sudo -S -p '' ";
-        async Task<string> RunScanCommand(string command)
-        {
-            if (host.SudoPasswordSecretRef is null) return await processService.RunSshCommand(host, command);
-            var secret = await secrets.ResolveAsync(host.SudoPasswordSecretRef);
-            if (!secret.Success || secret.Value is null) throw new InvalidOperationException(secret.ErrorMessage ?? "Could not resolve sudo password.");
-            var result = await processService.RunSshCommandWithInput(host, command, secret.Value + "\n");
-            result.EnsureSuccess("Docker scan");
-            return result.StandardOutput;
-        }
+        Task<string> RunScanCommand(string command) => DockerSudo.RunAsync(processService, secrets, host, command);
 
-        var dockerInfoOutput = await RunScanCommand($"{sudo}docker info --format '{{{{json .}}}}' 2>/dev/null || echo 'DOCKER_NOT_AVAILABLE'");
+        var dockerInfoOutput = await RunScanCommand("docker info --format '{{json .}}' 2>/dev/null || echo 'DOCKER_NOT_AVAILABLE'");
         dockerInfoOutput = dockerInfoOutput.Trim();
 
         if (dockerInfoOutput == "DOCKER_NOT_AVAILABLE" || string.IsNullOrEmpty(dockerInfoOutput))
@@ -73,10 +63,10 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
             logger.LogWarning(ex, "Failed to parse docker info JSON from {Alias}", host.Alias);
         }
 
-        var containersOutput = await RunScanCommand($"{sudo}docker ps -a --format '{{{{json .}}}}' 2>/dev/null");
+        var containersOutput = await RunScanCommand("docker ps -a --format '{{json .}}' 2>/dev/null");
         info.Containers = ParseContainerJson(containersOutput);
 
-        var composeOutput = await RunScanCommand($"{sudo}docker compose ls --format '{{{{json .}}}}' 2>/dev/null || true");
+        var composeOutput = await RunScanCommand("docker compose ls --format '{{json .}}' 2>/dev/null || true");
         info.ComposeStacks = ParseComposeStackJson(composeOutput);
 
         info.LastScannedAt = DateTime.UtcNow;
@@ -90,15 +80,13 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
 
     public Task Exec(ServerHost host, ContainerModel container)
     {
-        var sudo = BuildSudoPrefix(host.SudoPassword);
-        var command = $"{sudo}docker exec -it {container.Name} sh";
+        var command = $"sudo docker exec -it -- {DockerCommandSyntax.QuoteContainerName(container.Name)} sh";
         return processService.RunSshInteractive(host, command);
     }
 
     public Task Logs(ServerHost host, ContainerModel container)
     {
-        var sudo = BuildSudoPrefix(host.SudoPassword);
-        var command = $"{sudo}docker logs -f {container.Name}";
+        var command = $"sudo docker logs -f -- {DockerCommandSyntax.QuoteContainerName(container.Name)}";
         return processService.RunSshInteractive(host, command);
     }
 
@@ -186,22 +174,11 @@ public sealed class DockerService(IProcessService processService, IConfigReposit
 
     private void CacheAndSave(ServerHost host, DockerHostInfo info)
     {
-        var config = configRepository.Load();
-
-        var existing = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
-        if (existing is not null)
+        host.DockerInfo = info;
+        configRepository.Update(config =>
         {
-            existing.DockerInfo = info;
-            configRepository.Save(config);
-        }
-    }
-
-    private static string BuildSudoPrefix(string? sudoPassword)
-    {
-        if (string.IsNullOrEmpty(sudoPassword))
-            return "sudo ";
-
-        var escaped = sudoPassword.Replace("'", "'\\''");
-        return $"echo '{escaped}' | sudo -S ";
+            var existing = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+            if (existing is not null) existing.DockerInfo = info;
+        });
     }
 }
