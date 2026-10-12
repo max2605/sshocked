@@ -97,6 +97,7 @@ public sealed class TableRendererService : ITableRendererService
         AuthType.Password => "Password",
         AuthType.SshAgent => "Agent",
         AuthType.CustomConfig => "Custom",
+        AuthType.AzureBastion => "Azure Bastion",
         _ => "SSH Key"
     };
 }

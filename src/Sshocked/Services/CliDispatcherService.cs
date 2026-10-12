@@ -4,11 +4,22 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger) : ICliDispatcherService
+public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger) : ICliDispatcherService
 {
 
     public async Task<bool> Dispatch(ParseResult parseResult)
     {
+        if (parseResult.TargetHostId is { } id)
+        {
+            var host = configRepository.Load().Hosts.FirstOrDefault(h => h.Id == id) ?? throw new ArgumentException("The selected host no longer exists.");
+            if (parseResult.TargetContainerId is { } containerId)
+            {
+                var container = host.SavedContainers.FirstOrDefault(c => (c.Id ?? c.ContainerId) == containerId) ?? throw new ArgumentException("The selected container no longer exists.");
+                await consoleHelper.RunDockerExec(host, container);
+            }
+            else await sshRunner.Connect(host);
+            return true;
+        }
         if (parseResult.ManagementCommand is { } command)
         {
             var handler = handlers.FirstOrDefault(h => h.Handles(command))

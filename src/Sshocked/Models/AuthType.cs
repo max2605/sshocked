@@ -5,5 +5,6 @@ public enum AuthType
     SshKey,
     Password,
     SshAgent,
-    CustomConfig
+    CustomConfig,
+    AzureBastion
 }

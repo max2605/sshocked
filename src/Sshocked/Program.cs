@@ -76,6 +76,9 @@ static void ConfigureServices(IServiceCollection services)
     services.AddSingleton<IServerCrudService, ServerCrudService>();
     services.AddSingleton<ISshRunnerService, SshRunnerService>();
     services.AddSingleton<IGroupConnectionService, GroupConnectionService>();
+    services.AddSingleton<ITerminalLauncherService, TerminalLauncherService>();
+    services.AddSingleton<IExternalProcessRunner, ExternalProcessRunner>();
+    services.AddSingleton<IBastionService, AzureBastionService>();
     services.AddSingleton<IDockerService, DockerService>();
     services.AddSingleton<IContainerService, ContainerService>();
     services.AddSingleton<IContainerGroupService, ContainerGroupService>();

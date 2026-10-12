@@ -11,15 +11,18 @@ public sealed class SshRunnerService(IProcessService processService, IRecentConn
         logger.LogInformation("Connecting to {Alias}", host.Alias);
         audit.Record(new() { Category = "connection", EventType = "connection.start", HostId = host.Id, Alias = host.Alias, Action = $"{host.User}@{host.HostName}:{host.Port}" });
         var timer = System.Diagnostics.Stopwatch.StartNew();
+        var outcomeRecorded = false;
         try
         {
-            await processService.RunSsh(host);
-            recents.Record(host);
-            audit.Record(new() { Category = "connection", EventType = "connection.end", HostId = host.Id, Alias = host.Alias, DurationSeconds = timer.Elapsed.TotalSeconds });
+            var exitCode = await processService.RunSshSession(host);
+            if (exitCode == 0) recents.Record(host);
+            audit.Record(new() { Category = "connection", EventType = "connection.end", HostId = host.Id, Alias = host.Alias, Success = exitCode == 0, ExitCode = exitCode, DurationSeconds = timer.Elapsed.TotalSeconds });
+            outcomeRecorded = true;
+            new ProcessResult(exitCode, "", "").EnsureSuccess("SSH session");
         }
         catch (Exception ex)
         {
-            audit.Record(new() { Category = "connection", EventType = "connection.end", HostId = host.Id, Alias = host.Alias, Success = false, ErrorMessage = ex.Message, DurationSeconds = timer.Elapsed.TotalSeconds });
+            if (!outcomeRecorded) audit.Record(new() { Category = "connection", EventType = "connection.end", HostId = host.Id, Alias = host.Alias, Success = false, ErrorMessage = ex.Message, DurationSeconds = timer.Elapsed.TotalSeconds });
             throw;
         }
     }

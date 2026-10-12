@@ -1,156 +1,145 @@
 using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Sshocked.Interfaces;
 using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ProcessService(ILogger<ProcessService> logger) : IProcessService
+public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, IAuditService? audit = null) : IProcessService
 {
     public async Task RunSsh(ServerHost host)
     {
-        var args = BuildSshArgs(host);
+        var exitCode = await RunSshSession(host);
+        new ProcessResult(exitCode, "", "").EnsureSuccess("SSH session");
+    }
 
-        logger.LogInformation("Connecting to {Alias} via ssh {Args}", host.Alias, args);
+    public Task RunAzureBastionSsh(ServerHost host) => RunSsh(host);
 
-        var process = new Process
+    public async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default)
+    {
+        var native = host.AzureBastion?.ConnectionMode == BastionConnectionMode.Native;
+        await using var connection = await PrepareAsync(host, useTunnel: !native, ct);
+        logger.LogInformation("Starting SSH session to {Alias}", host.Alias);
+        int exit;
+        if (native)
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "ssh",
-                Arguments = args,
-                UseShellExecute = false
-            }
-        };
-
-        process.Start();
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("SSH session to {Alias} exited with code {ExitCode}", host.Alias, process.ExitCode);
+            exit = await bastionService.RunNativeSshAsync(connection.Host, initialCommand, ct, connection.Environment);
         }
         else
         {
-                    logger.LogInformation("SSH session to {Alias} completed", host.Alias);
+            var info = CreateSshStartInfo(connection, captureOutput: false, tty: initialCommand != null, initialCommand);
+            exit = (await runner.RunAsync(info, ct)).ExitCode;
         }
+        if (initialCommand != null) RecordCommand(host, initialCommand, exit);
+        logger.LogInformation("SSH session to {Alias} exited with code {ExitCode}", host.Alias, exit);
+        return exit;
     }
 
     public async Task<string> RunSshCommand(ServerHost host, string command)
     {
-            logger.LogInformation("Running remote command on {Alias}: {Command}", host.Alias, command);
+        var result = await RunSshCommandResult(host, command);
+        result.EnsureSuccess("Remote SSH command");
+        return result.StandardOutput + result.StandardError;
+    }
 
-        var psi = new ProcessStartInfo
+    public async Task<ProcessResult> RunSshCommandResult(ServerHost host, string command, CancellationToken ct = default)
+    {
+        // AAD requires Azure CLI's short-lived SSH certificate; a TCP tunnel cannot
+        // authenticate an AAD principal on its own.
+        var aad = host.AzureBastion?.AuthType == BastionAuthType.Aad;
+        await using var connection = await PrepareAsync(host, useTunnel: !aad, ct);
+        var result = aad
+            ? await bastionService.RunNativeCommandAsync(connection.Host, command, ct, connection.Environment)
+            : await runner.RunAsync(CreateSshStartInfo(connection, captureOutput: true, tty: false, command), ct);
+        RecordCommand(host, command, result.ExitCode);
+        return result;
+    }
+
+    private void RecordCommand(ServerHost host, string command, int exitCode)
+    {
+        foreach (var password in new[] { host.SudoPassword, host.SshPassword })
+            if (!string.IsNullOrEmpty(password)) command = command.Replace(password, "[REDACTED]", StringComparison.Ordinal);
+        audit?.Record(new AuditEntry
         {
-            FileName = "ssh",
-            Arguments = $"{BuildSshArgs(host)} -- {command}",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = psi };
-
-        var outputBuilder = new StringBuilder();
-        var errorBuilder = new StringBuilder();
-
-        process.OutputDataReceived += (_, args) =>
-        {
-            if (args.Data is not null)
-            {
-                outputBuilder.AppendLine(args.Data);
-            }
-        };
-
-        process.ErrorDataReceived += (_, args) =>
-        {
-            if (args.Data is not null)
-            {
-                errorBuilder.AppendLine(args.Data);
-            }
-        };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await process.WaitForExitAsync();
-
-        var output = outputBuilder.ToString();
-        var error = errorBuilder.ToString();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("Remote command on {Alias} exited with code {ExitCode}: {Error}",
-                host.Alias, process.ExitCode, error);
-        }
-
-        if (!string.IsNullOrEmpty(error))
-        {
-            output += error;
-        }
-
-        return output;
+            EventType = "command.executed", Category = command.Contains("docker ", StringComparison.Ordinal) ? "docker" : "command", HostId = host.Id, Alias = host.Alias,
+            Action = command, Success = exitCode == 0, ExitCode = exitCode
+        });
     }
 
     public async Task RunSshInteractive(ServerHost host, string command)
     {
-        var sshArgs = BuildSshArgs(host);
-
-            logger.LogInformation("Running interactive remote command on {Alias}: {Command}", host.Alias, command);
-
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "ssh",
-                Arguments = $"{sshArgs} -t -- {command}",
-                UseShellExecute = false
-            }
-        };
-
-        process.Start();
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("Interactive remote command on {Alias} exited with code {ExitCode}", host.Alias, process.ExitCode);
-        }
+        var exitCode = await RunSshSession(host, command);
+        new ProcessResult(exitCode, "", "").EnsureSuccess("Interactive remote SSH command");
     }
 
-    internal static string BuildSshArgs(ServerHost host)
+    public Task<ISshConnectionLease> PrepareConnectionAsync(ServerHost host, CancellationToken ct = default) => PrepareAsync(host, true, ct);
+
+    private async Task<ISshConnectionLease> PrepareAsync(ServerHost host, bool useTunnel, CancellationToken ct)
     {
-        var sb = new StringBuilder();
-
-        sb.Append("-p ");
-        sb.Append(host.Port);
-
-        switch (host.AuthType)
+        ct.ThrowIfCancellationRequested();
+        if (host.AuthType == AuthType.AzureBastion && host.AzureBastion == null) throw new ArgumentException("Azure Bastion configuration is missing.");
+        var prepared = CopyConnectionHost(host);
+        var lease = new SshConnectionLease(prepared);
+        try
         {
-            case AuthType.SshKey when !string.IsNullOrWhiteSpace(host.IdentityFile):
-                sb.Append(" -i \"");
-                sb.Append(host.IdentityFile);
-                sb.Append('"');
-                break;
-
-            case AuthType.CustomConfig when !string.IsNullOrWhiteSpace(host.CustomSshOptions):
-                sb.Append(' ');
-                sb.Append(host.CustomSshOptions.Trim());
-                break;
-
-            case AuthType.Password:
-            case AuthType.SshAgent:
-            default:
-                break;
+            if (useTunnel && prepared.AzureBastion != null)
+            {
+                var config = prepared.AzureBastion;
+                var tunnel = await bastionService.CreateTunnelAsync(config, ct);
+                lease.Add(tunnel);
+                await tunnel.WaitUntilReadyAsync(TimeSpan.FromSeconds(30), ct);
+                prepared.HostName = "127.0.0.1";
+                prepared.ProxyJump = null;
+                prepared.Port = tunnel.LocalPort;
+                prepared.User = config.Username ?? prepared.User;
+                prepared.AuthType = config.AuthType == BastionAuthType.Password ? AuthType.Password : AuthType.SshKey;
+                prepared.IdentityFile = config.SshKeyPath ?? prepared.IdentityFile;
+                // Host-key verification must follow the VM, not an ephemeral port.
+                prepared.SshHostKeyAlias = "bastion:" + (config.TargetResourceId ?? config.TargetIpAddress);
+                prepared.AzureBastion = null;
+            }
+            return lease;
         }
+        catch { await lease.DisposeAsync(); throw; }
+    }
 
-        sb.Append(' ');
-        sb.Append(host.User);
-        sb.Append('@');
-        sb.Append(host.HostName);
+    private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)
+    {
+        var info = new ProcessStartInfo { FileName = "ssh", UseShellExecute = false, RedirectStandardOutput = captureOutput, RedirectStandardError = captureOutput, CreateNoWindow = captureOutput };
+        foreach (var argument in SshArguments.Build(connection.Host, tty, command)) info.ArgumentList.Add(argument);
+        foreach (var variable in connection.Environment) info.Environment[variable.Key] = variable.Value;
+        return info;
+    }
 
-        return sb.ToString();
+    private static ServerHost CopyConnectionHost(ServerHost host) => new()
+    {
+        Id = host.Id, Alias = host.Alias, HostName = host.HostName, Port = host.Port, User = host.User,
+        AuthType = host.AuthType, IdentityFile = host.IdentityFile, CustomSshOptions = host.CustomSshOptions, SshHostKeyAlias = host.SshHostKeyAlias, ProxyJump = host.ProxyJump,
+        AzureBastion = host.AzureBastion is not { } bastion ? null : new AzureBastionConfig
+        {
+            BastionName = bastion.BastionName, BastionResourceGroup = bastion.BastionResourceGroup, TargetResourceId = bastion.TargetResourceId, TargetIpAddress = bastion.TargetIpAddress,
+            TargetPort = bastion.TargetPort, LocalPort = bastion.LocalPort, AuthType = bastion.AuthType, Username = bastion.Username, SshKeyPath = bastion.SshKeyPath,
+            SubscriptionId = bastion.SubscriptionId, TenantId = bastion.TenantId, ConnectionMode = bastion.ConnectionMode
+        }
+    };
+
+    private sealed class SshConnectionLease(ServerHost host) : ISshConnectionLease
+    {
+        private readonly List<IAsyncDisposable> resources = [];
+        public ServerHost Host { get; } = host;
+        public Dictionary<string, string?> Variables { get; } = new(StringComparer.Ordinal);
+        public IReadOnlyDictionary<string, string?> Environment => Variables;
+        public void Add(IAsyncDisposable resource) => resources.Add(resource);
+        public async ValueTask DisposeAsync()
+        {
+            var failures = new List<Exception>();
+            for (var i = resources.Count - 1; i >= 0; i--)
+            {
+                try { await resources[i].DisposeAsync(); }
+                catch (Exception error) { failures.Add(error); }
+            }
+            resources.Clear(); Variables.Clear();
+            if (failures.Count > 0) throw new AggregateException("SSH connection cleanup failed.", failures);
+        }
     }
 }

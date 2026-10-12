@@ -19,6 +19,8 @@ public sealed record ParseResult
     public string? Command { get; init; }
 
     public string? ManagementCommand { get; init; }
+    public string? TargetHostId { get; init; }
+    public string? TargetContainerId { get; init; }
     public string[] CommandArguments { get; init; } = [];
-    public bool IsInteractive => !HasPositionalArg && !ShowHelp && !ShowVersion && !ShowList && !HasGroupCommand && ManagementCommand is null;
+    public bool IsInteractive => !HasPositionalArg && !ShowHelp && !ShowVersion && !ShowList && !HasGroupCommand && ManagementCommand is null && TargetHostId is null;
 }

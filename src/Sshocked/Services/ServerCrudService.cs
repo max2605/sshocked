@@ -70,7 +70,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
                     "SSH Key (Default)",
                     "Password",
                     "SSH Agent",
-                    "Custom SSH Options"
+                    "Custom SSH Options",
+                    "Azure Bastion"
                 ]));
 
         string? identityFile = null;
@@ -108,12 +109,14 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
                 "Password" => Models.AuthType.Password,
                 "SSH Agent" => Models.AuthType.SshAgent,
                 "Custom SSH Options" => Models.AuthType.CustomConfig,
+                "Azure Bastion" => Models.AuthType.AzureBastion,
                 _ => Models.AuthType.SshKey
             },
             IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim(),
             CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim()
         };
 
+        if (authType == "Azure Bastion") host.AzureBastion = BastionConfigurationUi.Configure(null, user, keyPicker);
         config.Hosts.Add(host);
         configRepository.Save(config);
         logger.LogInformation("Added host '{Alias}' ({HostName})", host.Alias, host.HostName);
@@ -180,6 +183,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
             Models.AuthType.Password => "Password",
             Models.AuthType.SshAgent => "SSH Agent",
             Models.AuthType.CustomConfig => "Custom SSH Options",
+            Models.AuthType.AzureBastion => "Azure Bastion",
             _ => "SSH Key (Default)"
         };
 
@@ -190,7 +194,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
                     "SSH Key (Default)",
                     "Password",
                     "SSH Agent",
-                    "Custom SSH Options"
+                    "Custom SSH Options",
+                    "Azure Bastion"
                 ])
                 .DefaultValue(authTypeLabel));
 
@@ -227,10 +232,12 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
             "Password" => Models.AuthType.Password,
             "SSH Agent" => Models.AuthType.SshAgent,
             "Custom SSH Options" => Models.AuthType.CustomConfig,
+            "Azure Bastion" => Models.AuthType.AzureBastion,
             _ => Models.AuthType.SshKey
         };
         existing.IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim();
         existing.CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim();
+        existing.AzureBastion = authType == "Azure Bastion" ? BastionConfigurationUi.Configure(existing.AzureBastion, user, keyPicker) : null;
 
         configRepository.Save(config);
         logger.LogInformation("Edited host '{Alias}'", existing.Alias);
