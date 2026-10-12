@@ -53,8 +53,13 @@ public sealed class SecretKeyFile : IAsyncDisposable
             // Windows OpenSSH readers do not necessarily request FILE_SHARE_DELETE.
             // Keep DeleteOnClose on Unix; close Windows writer before SSH reads, and
             // delete explicitly after the session (also on normal application exit).
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.ReadWrite, Share = FileShare.Read | FileShare.Delete,
-                Options = FileOptions.Asynchronous | (OperatingSystem.IsWindows() ? FileOptions.None : FileOptions.DeleteOnClose) };
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.Read | FileShare.Delete,
+                Options = FileOptions.Asynchronous | (OperatingSystem.IsWindows() ? FileOptions.None : FileOptions.DeleteOnClose)
+            };
             if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
             stream = new FileStream(path, options);
             var bytes = Encoding.UTF8.GetBytes(value.TrimEnd() + "\n");

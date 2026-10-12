@@ -47,7 +47,10 @@ public sealed class SecretProviderRegistry(IConfigRepository configRepository, I
 
     private void AuditAccess(string provider, string secretId, bool success) => audit?.Record(new AuditEntry
     {
-        EventType = "secret.accessed", Category = "secret", Action = provider + ":" + secretId, Success = success
+        EventType = SecretProviderConstants.AccessEvent,
+        Category = SecretProviderConstants.AuditCategory,
+        Action = provider + ":" + secretId,
+        Success = success
     });
 
     private SecretProviderConfig FindConfiguration(string? name)

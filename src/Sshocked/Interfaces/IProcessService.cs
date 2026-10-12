@@ -7,7 +7,6 @@ public interface IProcessService
     Task RunSsh(ServerHost host);
     Task<string> RunSshCommand(ServerHost host, string command);
     Task RunSshInteractive(ServerHost host, string command);
-    Task RunAzureBastionSsh(ServerHost host) => RunSsh(host);
     async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null, bool auditCommand = true)
     {
         ct.ThrowIfCancellationRequested();

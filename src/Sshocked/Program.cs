@@ -12,9 +12,9 @@ internal sealed class Program
     {
         // OpenSSH invokes this executable as an askpass helper with a prompt argument.
         // Resolve it before configuration, DI and logging so only the requested password reaches stdout.
-        if (Environment.GetEnvironmentVariable("SSHOCKED_INTERNAL_ASKPASS") == "1")
+        if (Environment.GetEnvironmentVariable(SshAskPass.HelperEnvironment) == "1")
         {
-            Console.WriteLine(Environment.GetEnvironmentVariable("SSHOCKED_ASKPASS_PASSWORD") ?? "");
+            Console.WriteLine(Environment.GetEnvironmentVariable(SshAskPass.PasswordEnvironment) ?? "");
             return;
         }
 

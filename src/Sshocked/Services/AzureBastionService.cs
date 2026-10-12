@@ -1,14 +1,13 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Sshocked.Interfaces;
 using Sshocked.Models;
+using static Sshocked.Services.AzureCliSyntax;
 
 namespace Sshocked.Services;
 
@@ -18,11 +17,11 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     {
         try
         {
-            var versionResult = await runner.RunAsync(AzureCliCommand.Create(["version", "--output", "json"]), ct);
+            var versionResult = await runner.RunAsync(AzureCliCommand.Create([VersionCommand, OutputOption, JsonOutput]), ct);
             if (versionResult.ExitCode != 0) return new(false, null, false, false, false, "Install Azure CLI: https://aka.ms/azure-cli");
             using var versions = JsonDocument.Parse(versionResult.StandardOutput);
-            Version.TryParse(versions.RootElement.GetProperty("azure-cli").GetString(), out var version);
-            var extensionsResult = await runner.RunAsync(AzureCliCommand.Create(["extension", "list", "--output", "json"]), ct);
+            Version.TryParse(versions.RootElement.GetProperty(CliVersionProperty).GetString(), out var version);
+            var extensionsResult = await runner.RunAsync(AzureCliCommand.Create([Extension, List, OutputOption, JsonOutput]), ct);
             var bastion = false;
             var ssh = false;
             if (extensionsResult.ExitCode == 0)
@@ -30,12 +29,12 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
                 using var extensions = JsonDocument.Parse(extensionsResult.StandardOutput);
                 foreach (var extension in extensions.RootElement.EnumerateArray())
                 {
-                    var name = extension.GetProperty("name").GetString();
-                    bastion |= name == "bastion";
-                    ssh |= name == "ssh";
+                    var name = extension.GetProperty(NameProperty).GetString();
+                    bastion |= name == Bastion;
+                    ssh |= name == Ssh;
                 }
             }
-            var account = await runner.RunAsync(AzureCliCommand.Create(["account", "show", "--output", "json"]), ct);
+            var account = await runner.RunAsync(AzureCliCommand.Create([Account, Show, OutputOption, JsonOutput]), ct);
             var error = version == null || version < new Version(2, 62, 0) ? "Upgrade Azure CLI to version 2.62.0 or later." :
                 !bastion ? "Install Bastion support: az extension add --name bastion" :
                 account.ExitCode != 0 ? "Sign in to Azure: az login" : null;
@@ -93,17 +92,17 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
 
     public async Task<IReadOnlyList<BastionVmInfo>> ListTargetVmsAsync(string bastionName, string resourceGroup, CancellationToken ct = default)
     {
-        var check = await runner.RunAsync(AzureCliCommand.Create(["network", "bastion", "show", "--name", bastionName, "--resource-group", resourceGroup, "--output", "json"]), ct);
+        var check = await runner.RunAsync(AzureCliCommand.Create([Network, Bastion, Show, NameOption, bastionName, ResourceGroupOption, resourceGroup, OutputOption, JsonOutput]), ct);
         check.EnsureSuccess("Inspect Azure Bastion");
-        var result = await runner.RunAsync(AzureCliCommand.Create(["vm", "list", "--show-details", "--output", "json"]), ct);
+        var result = await runner.RunAsync(AzureCliCommand.Create([Vm, List, ShowDetailsOption, OutputOption, JsonOutput]), ct);
         result.EnsureSuccess("List candidate Azure VMs");
         using var document = JsonDocument.Parse(result.StandardOutput);
         var vms = new List<BastionVmInfo>();
         foreach (var vm in document.RootElement.EnumerateArray())
         {
             string? os = null;
-            if (vm.TryGetProperty("storageProfile", out var storage) && storage.TryGetProperty("osDisk", out var disk) && disk.TryGetProperty("osType", out var osType)) os = osType.GetString();
-            vms.Add(new(vm.GetProperty("name").GetString()!, vm.GetProperty("id").GetString()!, vm.TryGetProperty("privateIps", out var ips) ? ips.GetString() : null, os));
+            if (vm.TryGetProperty(StorageProfileProperty, out var storage) && storage.TryGetProperty(OsDiskProperty, out var disk) && disk.TryGetProperty(OsTypeProperty, out var osType)) os = osType.GetString();
+            vms.Add(new(vm.GetProperty(NameProperty).GetString()!, vm.GetProperty(IdProperty).GetString()!, vm.TryGetProperty(PrivateIpsProperty, out var ips) ? ips.GetString() : null, os));
         }
         return vms;
     }
@@ -116,8 +115,8 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         if (needsSshExtension && !prerequisites.HasSshExtension) throw new InvalidOperationException("Install native SSH support: az extension add --name ssh");
         if (!string.IsNullOrWhiteSpace(config.TenantId))
         {
-            var args = new List<string> { "account", "show", "--query", "tenantId", "--output", "tsv" };
-            if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange(["--subscription", config.SubscriptionId]);
+            var args = new List<string> { Account, Show, QueryOption, TenantIdQuery, OutputOption, TsvOutput };
+            if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange([SubscriptionOption, config.SubscriptionId]);
             var account = await runner.RunAsync(AzureCliCommand.Create(args), ct);
             account.EnsureSuccess("Read Azure tenant");
             if (!string.Equals(account.StandardOutput.Trim(), config.TenantId, StringComparison.OrdinalIgnoreCase))
@@ -131,7 +130,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         var resource = !string.IsNullOrWhiteSpace(config.TargetResourceId);
         var ip = !string.IsNullOrWhiteSpace(config.TargetIpAddress);
         if (resource == ip) throw new ArgumentException("Specify exactly one target VM resource ID or IP address.");
-        if (resource && !Regex.IsMatch(config.TargetResourceId!, @"^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Compute/virtualMachines/[^/]+$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        if (resource && !Regex.IsMatch(config.TargetResourceId!, TargetResourcePattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
             throw new ArgumentException("Target VM ID must have the form /subscriptions/<id>/resourceGroups/<group>/providers/Microsoft.Compute/virtualMachines/<name>.");
         if (ip && !IPAddress.TryParse(config.TargetIpAddress, out _)) throw new ArgumentException("Target IP address is invalid.");
         if (config.TargetPort is < 1 or > 65535 || config.LocalPort is < 0 or > 65535) throw new ArgumentException("Bastion ports must be within 1–65535 (local port 0 selects an available port).");
@@ -140,19 +139,19 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     public static IReadOnlyList<string> BuildNativeArguments(ServerHost host, string? command = null, bool tty = true)
     {
         var config = host.AzureBastion ?? throw new ArgumentException("Azure Bastion configuration is missing.");
-        var args = BuildTargetArguments(config, "ssh");
-        args.AddRange(["--auth-type", config.AuthType switch { BastionAuthType.Aad => "AAD", BastionAuthType.Password => "password", _ => "ssh-key" }]);
+        var args = BuildTargetArguments(config, Ssh);
+        args.AddRange([AuthTypeOption, config.AuthType switch { BastionAuthType.Aad => AadAuthentication, BastionAuthType.Password => PasswordAuthentication, _ => KeyAuthentication }]);
         if (config.AuthType != BastionAuthType.Aad)
         {
             var user = config.Username ?? host.User;
             if (string.IsNullOrWhiteSpace(user)) throw new ArgumentException("Bastion SSH username is required.");
-            args.AddRange(["--username", user]);
+            args.AddRange([UsernameOption, user]);
         }
         if (config.AuthType == BastionAuthType.SshKey)
         {
             var key = config.SshKeyPath ?? host.IdentityFile;
             if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("Bastion SSH key path is required.");
-            args.AddRange(["--ssh-key", key]);
+            args.AddRange([SshKeyOption, key]);
         }
         if (command != null) { args.Add("--"); if (tty) args.Add("-t"); args.Add(command); }
         return args;
@@ -173,77 +172,18 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
 
     public static IReadOnlyList<string> BuildTunnelArguments(AzureBastionConfig config, int localPort)
     {
-        var args = BuildTargetArguments(config, "tunnel");
-        args.AddRange(["--port", localPort.ToString(CultureInfo.InvariantCulture)]);
+        var args = BuildTargetArguments(config, Tunnel);
+        args.AddRange([PortOption, localPort.ToString(CultureInfo.InvariantCulture)]);
         return args;
     }
 
     private static List<string> BuildTargetArguments(AzureBastionConfig config, string verb)
     {
         Validate(config);
-        var args = new List<string> { "network", "bastion", verb, "--name", config.BastionName, "--resource-group", config.BastionResourceGroup,
-            "--resource-port", config.TargetPort.ToString(CultureInfo.InvariantCulture) };
-        args.AddRange(!string.IsNullOrWhiteSpace(config.TargetResourceId) ? ["--target-resource-id", config.TargetResourceId!] : ["--target-ip-address", config.TargetIpAddress!]);
-        if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange(["--subscription", config.SubscriptionId]);
+        var args = new List<string> { Network, Bastion, verb, NameOption, config.BastionName, ResourceGroupOption, config.BastionResourceGroup,
+            ResourcePortOption, config.TargetPort.ToString(CultureInfo.InvariantCulture) };
+        args.AddRange(!string.IsNullOrWhiteSpace(config.TargetResourceId) ? [TargetResourceIdOption, config.TargetResourceId!] : [TargetIpOption, config.TargetIpAddress!]);
+        if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange([SubscriptionOption, config.SubscriptionId]);
         return args;
-    }
-}
-
-internal sealed class AzureBastionTunnel : IBastionTunnel
-{
-    private readonly Process process;
-    private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly StringBuilder errors = new();
-    private readonly Task stdout;
-    private readonly Task stderr;
-    private readonly Task exited;
-    private int disposed;
-    public int LocalPort { get; }
-    public bool IsReady => ready.Task.IsCompletedSuccessfully && !process.HasExited;
-
-    internal AzureBastionTunnel(Process process, int port)
-    {
-        this.process = process;
-        LocalPort = port;
-        stdout = DrainAsync(process.StandardOutput);
-        stderr = DrainAsync(process.StandardError);
-        exited = ObserveExitAsync();
-    }
-
-    private async Task DrainAsync(StreamReader reader)
-    {
-        while (await reader.ReadLineAsync() is { } line)
-        {
-            if (line.Contains("ready", StringComparison.OrdinalIgnoreCase) && line.Contains("tunnel", StringComparison.OrdinalIgnoreCase)) ready.TrySetResult();
-            lock (errors) { if (errors.Length < 16384) errors.AppendLine(line); }
-        }
-    }
-
-    private async Task ObserveExitAsync()
-    {
-        await process.WaitForExitAsync();
-        await Task.WhenAll(stdout, stderr);
-        lock (errors) ready.TrySetException(new ProcessExecutionException("Azure Bastion tunnel", process.ExitCode, errors.ToString()));
-    }
-
-    public async Task WaitUntilReadyAsync(TimeSpan timeout, CancellationToken ct = default)
-    {
-        try { await ready.Task.WaitAsync(timeout, ct); }
-        catch (TimeoutException ex) { throw new TimeoutException("Azure Bastion tunnel did not become ready. Verify Bastion Standard/Premium SKU, native client support, target routing, and CLI permissions.", ex); }
-        if (process.HasExited) throw new ProcessExecutionException("Azure Bastion tunnel", process.ExitCode, "Tunnel exited before SSH could connect.");
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        try
-        {
-            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-            catch (InvalidOperationException) when (process.HasExited) { }
-            await exited;
-            // Observe a readiness fault if cleanup follows a timeout/cancellation.
-            if (ready.Task.IsFaulted) _ = ready.Task.Exception;
-        }
-        finally { process.Dispose(); }
     }
 }

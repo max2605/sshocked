@@ -34,13 +34,7 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         using var process = Start(startInfo);
         var output = startInfo.RedirectStandardOutput ? process.StandardOutput.ReadToEndAsync(cancellationToken) : Task.FromResult(string.Empty);
         var error = startInfo.RedirectStandardError ? process.StandardError.ReadToEndAsync(cancellationToken) : Task.FromResult(string.Empty);
-        var inputTask = input is null ? Task.CompletedTask : SendInput();
-        async Task SendInput()
-        {
-            try { await process.StandardInput.WriteAsync(input.AsMemory(), cancellationToken); await process.StandardInput.FlushAsync(cancellationToken); }
-            catch (IOException) { /* A rejecting command may close stdin before consuming credentials. Its exit code is authoritative. */ }
-            finally { process.StandardInput.Close(); }
-        }
+        var inputTask = input is null ? Task.CompletedTask : SendInput(process, input, cancellationToken);
         try
         {
             if (onStarted is not null) await onStarted();
@@ -58,5 +52,12 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
             catch { /* Observe pipe errors caused by shutdown without replacing the initiating failure. */ }
             throw;
         }
+    }
+
+    private static async Task SendInput(Process process, string input, CancellationToken cancellationToken)
+    {
+        try { await process.StandardInput.WriteAsync(input.AsMemory(), cancellationToken); await process.StandardInput.FlushAsync(cancellationToken); }
+        catch (IOException) { /* A rejecting command may close stdin before consuming credentials. Its exit code is authoritative. */ }
+        finally { process.StandardInput.Close(); }
     }
 }
