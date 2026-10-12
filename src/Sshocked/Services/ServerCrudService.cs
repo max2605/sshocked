@@ -238,6 +238,7 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
             : tagsInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
         var originalAuth = existing.AuthType;
         var originalIdentity = existing.IdentityFile;
+        var originalBastionAuth = existing.AzureBastion?.AuthType;
         existing.AuthType = authType switch
         {
             "Password" => Models.AuthType.Password,
@@ -249,7 +250,8 @@ public sealed class ServerCrudService(IConfigRepository configRepository, IGroup
         existing.IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim();
         existing.CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim();
         existing.AzureBastion = authType == "Azure Bastion" ? BastionConfigurationUi.Configure(existing.AzureBastion, user, keyPicker) : null;
-        if (authType != "From Key Vault" && (originalAuth != existing.AuthType || originalIdentity != existing.IdentityFile))
+        if (authType != "From Key Vault" && (originalAuth != existing.AuthType || originalIdentity != existing.IdentityFile
+            || originalBastionAuth != existing.AzureBastion?.AuthType))
         {
             existing.KeySecretRef = null;
             existing.PasswordSecretRef = null;

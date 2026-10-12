@@ -50,7 +50,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
         var elapsed = Stopwatch.StartNew();
         try
         {
-            var aad = host.AzureBastion?.AuthType == BastionAuthType.Aad;
+            var aad = host.AzureBastion?.AuthType == BastionAuthType.Aad && host.KeySecretRef is null && host.PasswordSecretRef is null;
             await using var connection = await PrepareAsync(host, useTunnel: !aad, ct);
             var result = aad
                 ? await bastionService.RunNativeCommandAsync(connection.Host, command, ct, connection.Environment)
@@ -86,11 +86,20 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
 
     public async Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
     {
-        await using var connection = await PrepareAsync(host, useTunnel: true, ct);
-        var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
-        var result = await runner.RunWithInputAsync(info, input, ct);
-        RecordCommand(host, command, result.ExitCode);
-        return result;
+        var elapsed = Stopwatch.StartNew();
+        try
+        {
+            await using var connection = await PrepareAsync(host, useTunnel: true, ct);
+            var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
+            var result = await runner.RunWithInputAsync(info, input, ct);
+            RecordCommand(host, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
+            return result;
+        }
+        catch (Exception error)
+        {
+            RecordCommand(host, command, null, elapsed.Elapsed.TotalSeconds, error.GetType().Name);
+            throw;
+        }
     }
 
     private async Task<ISshConnectionLease> PrepareAsync(ServerHost host, bool useTunnel, CancellationToken ct)

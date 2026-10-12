@@ -141,6 +141,70 @@ public sealed class SecretProviderTests
         Assert.Equal(42, exception.ExitCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VaultCredentialsUseCheckedTunnelCommandsEvenWhenStoredBastionAuthIsAad(bool password)
+    {
+        var repository = new FakeRepository();
+        repository.Config.SecretProviders.Add(new() { Name = "prod", ProviderType = "Fake", IsDefault = true });
+        var factory = new FakeFactory();
+        factory.Provider.Value = password ? "private-login-value" : "-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----";
+        var registry = new SecretProviderRegistry(repository, [factory], NullLogger<SecretProviderRegistry>.Instance);
+        var bastion = new CredentialBastion(password ? BastionAuthType.Password : BastionAuthType.SshKey);
+        var runner = new InspectRunner(info =>
+        {
+            Assert.Equal("ssh", info.FileName);
+            Assert.Contains("user@127.0.0.1", info.ArgumentList);
+            Assert.Contains("42522", info.ArgumentList);
+            Assert.Contains("HostKeyAlias=bastion:/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm", info.ArgumentList);
+            Assert.DoesNotContain(factory.Provider.Value, string.Join(' ', info.ArgumentList));
+            if (password) Assert.Equal(factory.Provider.Value, info.Environment["SSHOCKED_ASKPASS_PASSWORD"]);
+            else Assert.True(File.Exists(info.ArgumentList[info.ArgumentList.IndexOf("-i") + 1]));
+            return new ProcessResult(37, "partial", "failed");
+        });
+        var process = new ProcessService(NullLogger<ProcessService>.Instance, runner, bastion, registry);
+        var host = new ServerHost
+        {
+            User = "user", HostName = "vm", AuthType = AuthType.AzureBastion,
+            AzureBastion = new() { AuthType = BastionAuthType.Aad, ConnectionMode = BastionConnectionMode.Native,
+                BastionName = "bastion", BastionResourceGroup = "rg", TargetResourceId = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm" }
+        };
+        var reference = new SecretRef { SecretId = "credential", SecretType = password ? SecretType.Password : SecretType.SshPrivateKey };
+        if (password) host.PasswordSecretRef = reference; else host.KeySecretRef = reference;
+        var result = await process.RunSshCommandResult(host, "exit 37");
+        Assert.Equal(37, result.ExitCode);
+        Assert.True(bastion.Tunnel.Disposed);
+        if (!password) Assert.False(File.Exists(bastion.KeyPath));
+        Assert.Equal(BastionAuthType.Aad, host.AzureBastion.AuthType);
+        Assert.Null(host.IdentityFile);
+    }
+
+    private sealed class CredentialBastion(BastionAuthType expectedAuth) : IBastionService
+    {
+        public CredentialTunnel Tunnel { get; } = new();
+        public string? KeyPath { get; private set; }
+        public Task<IBastionTunnel> CreateTunnelAsync(AzureBastionConfig config, CancellationToken ct = default)
+        {
+            Assert.Equal(expectedAuth, config.AuthType);
+            KeyPath = config.SshKeyPath;
+            return Task.FromResult<IBastionTunnel>(Tunnel);
+        }
+        public Task<BastionCliInfo> CheckPrerequisitesAsync(CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<BastionVmInfo>> ListTargetVmsAsync(string bastionName, string resourceGroup, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<int> RunNativeSshAsync(ServerHost host, string? command = null, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null) => throw new InvalidOperationException("Effective vault key/password credentials must use a checked tunnel command.");
+        public Task<ProcessResult> RunNativeCommandAsync(ServerHost host, string command, CancellationToken ct = default, IReadOnlyDictionary<string, string?>? environment = null) => throw new InvalidOperationException("Effective vault key/password credentials must use a checked tunnel command.");
+    }
+
+    private sealed class CredentialTunnel : IBastionTunnel
+    {
+        public int LocalPort => 42522;
+        public bool IsReady => true;
+        public bool Disposed { get; private set; }
+        public Task WaitUntilReadyAsync(TimeSpan timeout, CancellationToken ct = default) => Task.CompletedTask;
+        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+    }
+
     private sealed class InspectRunner(Func<ProcessStartInfo, ProcessResult> inspect) : IExternalProcessRunner
     {
         public Process Start(ProcessStartInfo startInfo) => throw new NotSupportedException();
