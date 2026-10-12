@@ -16,7 +16,6 @@ public sealed partial class AuditService : IAuditService, IDisposable
     private readonly object _gate = new();
     private Dictionary<string, string> _hosts;
     private Dictionary<string, string> _groups;
-    private int _writes;
 
     public AuditService(IConfigRepository repository, ILogger<AuditService> logger)
         : this(repository, logger, Path.Combine(ConfigPaths.DirectoryPath, "audit", "audit.jsonl")) { }
@@ -50,6 +49,7 @@ public sealed partial class AuditService : IAuditService, IDisposable
         {
             lock (_gate)
             {
+                using var fileLock = CrossProcessFileLock.Acquire(_path);
                 Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
                 using (var stream = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read))
                 using (var writer = new StreamWriter(stream))
@@ -59,17 +59,21 @@ public sealed partial class AuditService : IAuditService, IDisposable
                     stream.Flush(true);
                 }
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                if (++_writes == 1 || _writes % 100 == 0) ApplyRetention(settings);
+                ApplyRetention(settings);
             }
         }
         catch (IOException ex) { _logger.LogError(ex, "Could not write audit event {EventType}", entry.EventType); }
         catch (UnauthorizedAccessException ex) { _logger.LogError(ex, "Audit directory is not writable"); }
+        catch (TimeoutException ex) { _logger.LogError(ex, "Audit file is busy"); }
     }
 
     public IReadOnlyList<AuditEntry> Query(AuditQuery query)
     {
+        var settings = _repository.Load().Audit;
         lock (_gate)
         {
+            using var fileLock = CrossProcessFileLock.Acquire(_path);
+            if (File.Exists(_path)) ApplyRetention(settings);
             return ReadEntries().Where(e =>
                     (query.Type is null || e.Category.Equals(query.Type, StringComparison.OrdinalIgnoreCase) || e.EventType.Equals(query.Type, StringComparison.OrdinalIgnoreCase)) &&
                     (query.Server is null || string.Equals(e.HostId, query.Server, StringComparison.OrdinalIgnoreCase) || string.Equals(e.Alias, query.Server, StringComparison.OrdinalIgnoreCase)) &&
@@ -110,7 +114,7 @@ public sealed partial class AuditService : IAuditService, IDisposable
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    public void Clear() { lock (_gate) { if (File.Exists(_path)) File.Delete(_path); } }
+    public void Clear() { lock (_gate) { using var fileLock = CrossProcessFileLock.Acquire(_path); if (File.Exists(_path)) File.Delete(_path); } }
 
     private void ConfigurationSaved(object? sender, EventArgs args)
     {

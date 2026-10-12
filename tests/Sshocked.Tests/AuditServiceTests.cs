@@ -48,5 +48,26 @@ public sealed class AuditServiceTests : IDisposable
         Assert.DoesNotContain(audit.Query(new()), e => e.EventType == "disabled");
     }
 
+    [Fact]
+    public async Task ConcurrentWritersKeepAllEventsAndEnforceExactRetention()
+    {
+        var path = Path.Combine(_directory, "audit.jsonl");
+        var config = new JsonConfigRepository(Path.Combine(_directory, "appconfig.json"));
+        config.Update(c => c.Audit.MaxEntries = 100);
+        var writers = Enumerable.Range(0, 4).Select(_ => new AuditService(config, NullLogger<AuditService>.Instance, path)).ToArray();
+        try
+        {
+            await Task.WhenAll(Enumerable.Range(0, 40).Select(i => Task.Run(() => writers[i % writers.Length].Record(
+                new() { Category = "connection", EventType = "parallel", Action = i.ToString() }))));
+            Assert.Equal(40, writers[0].Query(new(Last: 100)).Count);
+            Assert.Equal(40, writers[0].Query(new(Last: 100)).Select(e => e.EntryId).Distinct().Count());
+            config.Update(c => c.Audit.MaxEntries = 3);
+            writers[0].Record(new() { Category = "connection", EventType = "last" });
+            Assert.Equal(3, File.ReadLines(path).Count());
+            Assert.Equal("last", writers[0].Query(new()).First().EventType);
+        }
+        finally { foreach (var writer in writers) writer.Dispose(); }
+    }
+
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }
