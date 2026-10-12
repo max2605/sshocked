@@ -5,256 +5,73 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerCrudService(IConfigRepository configRepository, IGroupManagementService groupManagement, ILogger<ServerCrudService> logger) : IServerCrudService
+public sealed class ServerCrudService(IConfigRepository repository, IServerFormService form,
+    ILogger<ServerCrudService> logger) : IServerCrudService
 {
-
     public ServerHost? Add()
     {
-        var config = configRepository.Load();
-
-        var alias = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]Alias[/] (or [grey]leave empty to cancel[/]):")
-                .AllowEmpty()
-                .Validate(input =>
-                {
-                    if (string.IsNullOrWhiteSpace(input))
-                        return ValidationResult.Success();
-                    if (config.Hosts.Any(h => h.Alias.Equals(input.Trim(), StringComparison.OrdinalIgnoreCase)))
-                        return ValidationResult.Error("[red]Alias already exists.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        if (string.IsNullOrWhiteSpace(alias))
+        var host = form.Fill(repository.Load());
+        if (host is null)
         {
             logger.LogInformation("User cancelled add server");
             return null;
         }
-
-        var hostName = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]HostName / IP[/]:")
-                .Validate(input =>
-                {
-                    if (string.IsNullOrWhiteSpace(input))
-                        return ValidationResult.Error("[red]HostName cannot be empty.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        var user = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]User[/]:")
-                .DefaultValue(Environment.UserName));
-
-        var port = AnsiConsole.Prompt(
-            new TextPrompt<int>("[green]Port[/]:")
-                .DefaultValue(22)
-                .Validate(input =>
-                {
-                    if (input < 1 || input > 65535)
-                        return ValidationResult.Error("[red]Port must be between 1 and 65535.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        var groups = groupManagement.GetAll();
-        var groupName = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[green]Group[/]:")
-                .AddChoices(groups.Select(g => g.Name).Prepend("(none)")));
-
-        var tagsInput = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]Tags[/] (comma-separated):")
-                .AllowEmpty());
-
-        var authType = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[green]Authentication Method[/]:")
-                .AddChoices([
-                    "SSH Key (Default)",
-                    "Password",
-                    "SSH Agent",
-                    "Custom SSH Options"
-                ]));
-
-        string? identityFile = null;
-        if (authType == "SSH Key (Default)")
+        repository.Update(config =>
         {
-            identityFile = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Identity File[/] (optional, e.g. ~/.ssh/id_ed25519):")
-                    .AllowEmpty());
-        }
-
-        string? customSshOptions = null;
-        if (authType == "Custom SSH Options")
-        {
-            customSshOptions = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Custom SSH Options[/] (e.g. -o StrictHostKeyChecking=no -o ServerAliveInterval=60):")
-                    .Validate(input =>
-                    {
-                        if (string.IsNullOrWhiteSpace(input))
-                            return ValidationResult.Error("[red]Custom SSH options cannot be empty.[/]");
-                        return ValidationResult.Success();
-                    }));
-        }
-
-        var host = new ServerHost
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Alias = alias.Trim(),
-            HostName = hostName.Trim(),
-            User = user.Trim(),
-            Port = port,
-            GroupId = groupName == "(none)" ? string.Empty : groups.First(g => g.Name == groupName).Id,
-            Tags = string.IsNullOrWhiteSpace(tagsInput)
-                ? []
-                : tagsInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(),
-            AuthType = authType switch
-            {
-                "Password" => Models.AuthType.Password,
-                "SSH Agent" => Models.AuthType.SshAgent,
-                "Custom SSH Options" => Models.AuthType.CustomConfig,
-                _ => Models.AuthType.SshKey
-            },
-            IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim(),
-            CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim()
-        };
-
-        config.Hosts.Add(host);
-        configRepository.Save(config);
+            ValidateUniqueAlias(config, host);
+            config.Hosts.Add(host);
+        });
         logger.LogInformation("Added host '{Alias}' ({HostName})", host.Alias, host.HostName);
-
         return host;
     }
 
     public void Edit(ServerHost host)
     {
-        var config = configRepository.Load();
-        var existing = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+        var config = repository.Load();
+        var existing = config.Hosts.FirstOrDefault(current => current.Id == host.Id);
         if (existing is null) return;
-
-        var alias = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]Alias[/]:")
-                .DefaultValue(existing.Alias)
-                .Validate(input =>
-                {
-                    if (string.IsNullOrWhiteSpace(input))
-                        return ValidationResult.Error("[red]Alias cannot be empty.[/]");
-                    if (config.Hosts.Any(h => h.Id != host.Id && h.Alias.Equals(input.Trim(), StringComparison.OrdinalIgnoreCase)))
-                        return ValidationResult.Error("[red]Alias already exists.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        var hostName = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]HostName / IP[/]:")
-                .DefaultValue(existing.HostName)
-                .Validate(input =>
-                {
-                    if (string.IsNullOrWhiteSpace(input))
-                        return ValidationResult.Error("[red]HostName cannot be empty.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        var user = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]User[/]:")
-                .DefaultValue(existing.User));
-
-        var port = AnsiConsole.Prompt(
-            new TextPrompt<int>("[green]Port[/]:")
-                .DefaultValue(existing.Port)
-                .Validate(input =>
-                {
-                    if (input < 1 || input > 65535)
-                        return ValidationResult.Error("[red]Port must be between 1 and 65535.[/]");
-                    return ValidationResult.Success();
-                }));
-
-        var groups = groupManagement.GetAll();
-        var currentGroup = groups.FirstOrDefault(g => g.Id == existing.GroupId);
-        var groupName = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[green]Group[/]:")
-                .AddChoices(groups.Select(g => g.Name).Prepend("(none)"))
-                .DefaultValue(currentGroup?.Name ?? "(none)"));
-
-        var tagsInput = AnsiConsole.Prompt(
-            new TextPrompt<string>("[green]Tags[/] (comma-separated):")
-                .DefaultValue(string.Join(", ", existing.Tags)));
-
-        var authTypeLabel = existing.AuthType switch
+        var updated = form.Fill(config, existing);
+        if (updated is null) return;
+        repository.Update(current =>
         {
-            Models.AuthType.Password => "Password",
-            Models.AuthType.SshAgent => "SSH Agent",
-            Models.AuthType.CustomConfig => "Custom SSH Options",
-            _ => "SSH Key (Default)"
-        };
-
-        var authType = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[green]Authentication Method[/]:")
-                .AddChoices([
-                    "SSH Key (Default)",
-                    "Password",
-                    "SSH Agent",
-                    "Custom SSH Options"
-                ])
-                .DefaultValue(authTypeLabel));
-
-        string? identityFile = existing.IdentityFile;
-        if (authType == "SSH Key (Default)")
-        {
-            identityFile = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Identity File[/] (optional, e.g. ~/.ssh/id_ed25519):")
-                    .DefaultValue(existing.IdentityFile ?? string.Empty)
-                    .AllowEmpty());
-        }
-
-        string? customSshOptions = existing.CustomSshOptions;
-        if (authType == "Custom SSH Options")
-        {
-            customSshOptions = AnsiConsole.Prompt(
-                new TextPrompt<string>("[green]Custom SSH Options[/] (e.g. -o StrictHostKeyChecking=no -o ServerAliveInterval=60):")
-                    .DefaultValue(existing.CustomSshOptions ?? string.Empty)
-                    .Validate(input =>
-                    {
-                        if (string.IsNullOrWhiteSpace(input))
-                            return ValidationResult.Error("[red]Custom SSH options cannot be empty.[/]");
-                        return ValidationResult.Success();
-                    }));
-        }
-
-        existing.Alias = alias.Trim();
-        existing.HostName = hostName.Trim();
-        existing.User = user.Trim();
-        existing.Port = port;
-        existing.GroupId = groupName == "(none)" ? string.Empty : groups.First(g => g.Name == groupName).Id;
-        existing.Tags = string.IsNullOrWhiteSpace(tagsInput)
-            ? []
-            : tagsInput.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-        existing.AuthType = authType switch
-        {
-            "Password" => Models.AuthType.Password,
-            "SSH Agent" => Models.AuthType.SshAgent,
-            "Custom SSH Options" => Models.AuthType.CustomConfig,
-            _ => Models.AuthType.SshKey
-        };
-        existing.IdentityFile = string.IsNullOrWhiteSpace(identityFile) ? null : identityFile.Trim();
-        existing.CustomSshOptions = string.IsNullOrWhiteSpace(customSshOptions) ? null : customSshOptions.Trim();
-
-        configRepository.Save(config);
-        logger.LogInformation("Edited host '{Alias}'", existing.Alias);
+            var target = current.Hosts.FirstOrDefault(candidate => candidate.Id == updated.Id)
+                ?? throw new InvalidOperationException("This host was deleted in another window.");
+            ValidateUniqueAlias(current, updated);
+            CopyEditableFields(updated, target);
+        });
+        logger.LogInformation("Edited host '{Alias}'", updated.Alias);
     }
 
     public bool Delete(ServerHost host)
     {
-        var confirmed = AnsiConsole.Confirm(
-            $"Are you sure you want to delete '[yellow]{Markup.Escape(host.Alias)}[/]'?");
-
-        if (!confirmed) return false;
-
-        var config = configRepository.Load();
-        config.Hosts.RemoveAll(h => h.Id == host.Id);
-        configRepository.Save(config);
+        if (!AnsiConsole.Confirm($"Are you sure you want to delete '[yellow]{Markup.Escape(host.Alias)}[/]'?")) return false;
+        repository.Update(config => config.Hosts.RemoveAll(current => current.Id == host.Id));
         logger.LogInformation("Deleted host '{Alias}'", host.Alias);
-
         return true;
     }
+
+    private static void ValidateUniqueAlias(AppConfig config, ServerHost host)
+    {
+        if (config.Hosts.Any(current => current.Id != host.Id && current.Alias.Equals(host.Alias, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("This alias was added in another window. Choose another alias.");
+    }
+
+    private static void CopyEditableFields(ServerHost source, ServerHost target)
+    {
+        target.Alias = source.Alias;
+        target.HostName = source.HostName;
+        target.User = source.User;
+        target.Port = source.Port;
+        target.GroupId = source.GroupId;
+        target.Tags = source.Tags;
+        target.AuthType = source.AuthType;
+        target.IdentityFile = source.IdentityFile;
+        target.CustomSshOptions = source.CustomSshOptions;
+        target.AzureBastion = source.AzureBastion;
+        target.KeySecretRef = source.KeySecretRef;
+        target.PasswordSecretRef = source.PasswordSecretRef;
+        target.SudoPasswordSecretRef = source.SudoPasswordSecretRef;
+        target.Hooks = source.Hooks;
+        target.RecordSession = source.RecordSession;
+    }
 }
-
-

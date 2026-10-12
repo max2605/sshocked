@@ -4,7 +4,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImporter sshConfigImporter, IMainMenuService mainMenu, IConsoleWriterService console, ILogger<AppRunner> logger) : IAppRunner
+public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImporter sshConfigImporter, ISshConfigSyncService sync, IMainMenuService mainMenu, IConsoleWriterService console, ILogger<AppRunner> logger) : IAppRunner
 {
     public async Task Run()
     {
@@ -14,6 +14,7 @@ public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImpo
 
         if (config.IsFirstStart)
         {
+            var importedHosts = new List<ServerHost>();
             console.WriteLine("Welcome to sshocked! Your configuration has been initialized.");
             logger.LogInformation("First start detected");
 
@@ -28,8 +29,7 @@ public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImpo
 
                 if (response is "y" or "yes")
                 {
-                    var importedHosts = sshConfigImporter.Import();
-                    config.Hosts.AddRange(importedHosts);
+                    importedHosts = sshConfigImporter.Import();
                     console.WriteLine($"Imported {importedHosts.Count} host(s) from your SSH config.");
                     logger.LogInformation("Imported {Count} host(s) from SSH config", importedHosts.Count);
                 }
@@ -40,10 +40,18 @@ public sealed class AppRunner(IConfigRepository configRepository, ISshConfigImpo
                 }
             }
 
-            config.IsFirstStart = false;
-            configRepository.Save(config);
+            configRepository.Update(latest =>
+            {
+                foreach (var host in importedHosts)
+                {
+                    if (!latest.Hosts.Any(h => h.Id == host.Id || h.Alias.Equals(host.Alias, StringComparison.OrdinalIgnoreCase)))
+                        latest.Hosts.Add(host);
+                }
+                latest.IsFirstStart = false;
+            });
         }
 
+        sync.Initialize();
         await mainMenu.Show();
 
         logger.LogInformation("AppRunner finished");

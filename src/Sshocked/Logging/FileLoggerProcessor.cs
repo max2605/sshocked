@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Sshocked.Services;
 
 namespace Sshocked.Logging;
 
@@ -12,15 +13,12 @@ public sealed class FileLoggerProcessor : IDisposable
     private readonly string _logFilePath;
     private readonly BlockingCollection<LogEntry> _queue = new(new ConcurrentQueue<LogEntry>());
     private readonly Thread _workerThread;
+    private readonly object _gate = new();
     private bool _disposed;
 
-    public FileLoggerProcessor()
+    public FileLoggerProcessor(string? directory = null)
     {
-        var baseDir = Environment.OSVersion.Platform == PlatformID.Win32NT
-            ? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-
-        _logDir = Path.Combine(baseDir, "sshocked", "logs");
+        _logDir = directory ?? Path.Combine(ConfigPaths.DirectoryPath, "logs");
         Directory.CreateDirectory(_logDir);
         _logFilePath = Path.Combine(_logDir, "sshocked.log");
 
@@ -34,9 +32,9 @@ public sealed class FileLoggerProcessor : IDisposable
 
     public void Enqueue(LogEntry entry)
     {
-        if (!_disposed)
+        lock (_gate)
         {
-            _queue.Add(entry);
+            if (!_disposed) _queue.Add(entry);
         }
     }
 
@@ -44,13 +42,13 @@ public sealed class FileLoggerProcessor : IDisposable
     {
         foreach (var entry in _queue.GetConsumingEnumerable())
         {
-            if (_disposed) break;
-
             try
             {
+                using var fileLock = CrossProcessFileLock.Acquire(_logFilePath);
                 RollIfNeeded();
                 var line = FormatEntry(entry);
                 File.AppendAllText(_logFilePath, line);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_logFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
             catch
             {
@@ -101,13 +99,14 @@ public sealed class FileLoggerProcessor : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _queue.CompleteAdding();
-        if (_workerThread.IsAlive)
+        lock (_gate)
         {
-            _workerThread.Join(TimeSpan.FromSeconds(2));
+            if (_disposed) return;
+            _disposed = true;
+            _queue.CompleteAdding();
         }
-        _queue.Dispose();
+        // Drain queued shutdown messages. Leave the collection alive if a slow file
+        // operation outlasts the bounded shutdown wait; the worker still owns it.
+        if (_workerThread.Join(TimeSpan.FromSeconds(5))) _queue.Dispose();
     }
 }

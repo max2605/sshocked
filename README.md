@@ -18,6 +18,14 @@ A .NET console application that provides a fast, interactive terminal UI for man
 - **Multiple Auth Methods** — SSH key (with optional identity file), password, SSH agent, or custom SSH options
 - **Interactive TUI** — Keyboard-driven terminal UI with sub-menu navigation and a server overview table
 - **Native AOT** — Published as a native binary for fast startup and zero runtime dependencies
+- **Favorites and history** — Favorite hosts/containers, recent targets, and a structured audit CLI
+- **SSH config synchronization** — Guarded import/export, backups, conflict resolution, and optional monitoring
+- **File transfers** — SCP upload/download, remote browser, and per-host group results
+- **Azure connections and secrets** — Native Bastion or managed TCP tunnels, named Azure Key Vault providers, and temporary SSH credentials
+- **Connection hooks** — Global/per-host local actions and remote shell setup/cleanup
+- **Session output recordings** — Opt-in timed cast files with replay, export, compression, and retention
+
+See [the implementation guide](docs/ISSUE_IMPLEMENTATION.md) for the new menus, CLI examples, validation, and platform limitations. Detailed guides cover [SSH keys/config sync](docs/FEATURES.md), [hooks](docs/CONNECTION_HOOKS.md), [recordings](docs/SESSION_RECORDING.md), and [display settings](docs/VISUALS.md).
 
 ## Tech Stack
 

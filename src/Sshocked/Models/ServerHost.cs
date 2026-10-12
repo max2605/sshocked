@@ -16,6 +16,20 @@ public sealed class ServerHost
     public string? CustomSshOptions { get; set; }
     public DockerHostInfo? DockerInfo { get; set; }
     public List<ContainerModel> SavedContainers { get; set; } = [];
+    public bool IsFavorite { get; set; }
+    public string? ProxyJump { get; set; }
+    public AzureBastionConfig? AzureBastion { get; set; }
+    public SecretRef? KeySecretRef { get; set; }
+    public SecretRef? PasswordSecretRef { get; set; }
+    public SecretRef? SudoPasswordSecretRef { get; set; }
+    public ConnectionHooks? Hooks { get; set; }
+    public bool? RecordSession { get; set; }
+
+    [JsonIgnore]
+    public bool UsesAzureBastion => AzureBastion is not null;
+
+    [JsonIgnore]
+    public string? SshHostKeyAlias { get; set; }
 
     [JsonIgnore]
     public string? SudoPassword { get; set; }

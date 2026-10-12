@@ -1,14 +1,32 @@
 using Microsoft.Extensions.Logging;
 using Sshocked.Interfaces;
-using Sshocked.Models;
+
 
 namespace Sshocked.Services;
 
-public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, ILogger<CliDispatcherService> logger) : ICliDispatcherService
+public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger) : ICliDispatcherService
 {
 
     public async Task<bool> Dispatch(ParseResult parseResult)
     {
+        if (parseResult.TargetHostId is { } id)
+        {
+            var host = configRepository.Load().Hosts.FirstOrDefault(h => h.Id == id) ?? throw new ArgumentException("The selected host no longer exists.");
+            if (parseResult.TargetContainerId is { } containerId)
+            {
+                var container = host.SavedContainers.FirstOrDefault(c => (c.Id ?? c.ContainerId) == containerId) ?? throw new ArgumentException("The selected container no longer exists.");
+                await consoleHelper.RunDockerExec(host, container);
+            }
+            else await sshRunner.Connect(host);
+            return true;
+        }
+        if (parseResult.ManagementCommand is { } command)
+        {
+            var handler = handlers.FirstOrDefault(h => h.Handles(command))
+                ?? throw new ArgumentException($"Unknown command '{command}'.");
+            await handler.Execute(command, parseResult.CommandArguments);
+            return true;
+        }
         if (parseResult.ShowHelp)
         {
             PrintHelp();
@@ -49,6 +67,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
         if (group is null)
         {
+            Environment.ExitCode = 1;
             Console.WriteLine($"Error: Group '{groupName}' not found.");
             Console.WriteLine("Run 'ssk --list' to see available groups.");
             return true;
@@ -94,6 +113,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
         if (hasErrors)
         {
+            Environment.ExitCode = 1;
             Console.WriteLine("Completed with errors on some servers.");
         }
 
@@ -148,6 +168,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         }
 
         Console.WriteLine($"Error: No server or group found matching '{target}'.");
+        Environment.ExitCode = 1;
         Console.WriteLine("Run 'ssk --help' for usage information.");
         return true;
     }
@@ -165,6 +186,10 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         Console.WriteLine("  ssk --list, -l             List all configured servers and groups");
         Console.WriteLine("  ssk --help, -h             Show this help message");
         Console.WriteLine("  ssk --version, -v          Show version information");
+        Console.WriteLine("  ssk history [options]     Query audit events; --output json|jsonl|csv");
+        Console.WriteLine("  ssk audit status|enable|disable|settings  Configure audit logging");
+        Console.WriteLine("  ssk sessions list|replay|export|delete   Manage output recordings");
+        Console.WriteLine("  ssk sessions status|enable|disable      Configure recording policy");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  ssk prod-db-01             Connect to server 'prod-db-01'");

@@ -1,11 +1,10 @@
-using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Sshocked.Interfaces;
 using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav) : IServerMenuService
+public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers, IUiChromeService chrome) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -24,6 +23,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         {
             config = configRepository.Load();
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main", "Servers");
             tableRenderer.RenderServerTable(config);
 
             var host = hostSelector.SelectHost(config.Hosts, "Select a [green]server[/]");
@@ -33,23 +33,37 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                 return;
             }
 
-            await ShowServerActions(config, host);
+            await ShowServerActions(host);
         }
     }
 
-    public async Task ShowServerActions(AppConfig config, ServerHost host)
+    public async Task ShowServerActions(ServerHost host)
     {
         bool shouldExit = false;
 
         while (nav.Current == ViewType.ServerDetail && !shouldExit)
         {
+            var config = configRepository.Load();
+            var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+            if (currentHost is null) return;
+            host = currentHost;
             AnsiConsole.Clear();
+            chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
             RenderServerHeader(host);
             RenderDockerSummary(host);
 
             var menuEntries = new List<MenuEntry>
             {
                 new("Connect", 'C', executeAsync: () => consoleHelper.RunSsh(host)),
+                new(host.IsFavorite ? "Remove favorite" : "Add favorite", 'F', executeAsync: () =>
+                {
+                    recents.ToggleFavorite(host);
+                    return Task.CompletedTask;
+                }),
+                new("Upload file", 'U', executeAsync: () => transfers.Upload(host)),
+                new("Quick upload", 'Q', executeAsync: () => transfers.Upload(host, true)),
+                new("Download file", 'O', executeAsync: () => transfers.Download(host)),
+                new("Browse remote", 'R', executeAsync: () => transfers.Browse(host)),
                 new("Scan Docker", 'D', executeAsync: () => ScanDockerForHost(host)),
                 new("Edit", 'E', executeAsync: () =>
                 {
@@ -85,14 +99,14 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         }
     }
 
-    private void RenderServerHeader(ServerHost host)
+    private static void RenderServerHeader(ServerHost host)
     {
         AnsiConsole.MarkupLine($"[bold cyan]Server: {Markup.Escape(host.Alias)}[/]");
         AnsiConsole.MarkupLine($"  Host: {Markup.Escape(host.HostName)}  User: {Markup.Escape(host.User)}  Port: {host.Port}");
         AnsiConsole.WriteLine();
     }
 
-    private void RenderDockerSummary(ServerHost host)
+    private static void RenderDockerSummary(ServerHost host)
     {
         var dockerInfo = host.DockerInfo;
         if (dockerInfo is null)
@@ -173,7 +187,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
     private async Task ScanDockerForHost(ServerHost host)
     {
-        if (host.AuthType == AuthType.Password)
+        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null && string.IsNullOrEmpty(host.SshPassword))
         {
             AnsiConsole.MarkupLine("[yellow]Docker scan is not supported for password-authenticated hosts.[/]");
             AnsiConsole.MarkupLine("[grey]Use SSH key or agent authentication to enable Docker scanning.[/]");
@@ -181,7 +195,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
             return;
         }
 
-        if (string.IsNullOrEmpty(host.SudoPassword))
+        if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
         {
             var needsSudo = AnsiConsole.Confirm("Does this host require [yellow]sudo[/] with a password?", false);
             if (needsSudo)

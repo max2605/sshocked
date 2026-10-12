@@ -1,156 +1,111 @@
 using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Sshocked.Interfaces;
 using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ProcessService(ILogger<ProcessService> logger) : IProcessService
+public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProcessRunner runner, IBastionService bastionService, ISecretProviderRegistry secrets, IAuditService? audit = null, ISessionRecordingService? recorder = null) : IProcessService
 {
+    private readonly SshConnectionPreparer connectionPreparer = new(bastionService, secrets);
+
     public async Task RunSsh(ServerHost host)
     {
-        var args = BuildSshArgs(host);
+        var exitCode = await RunSshSession(host);
+        new ProcessResult(exitCode, "", "").EnsureSuccess("SSH session");
+    }
 
-        logger.LogInformation("Connecting to {Alias} via ssh {Args}", host.Alias, args);
 
-        var process = new Process
+    public async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null, bool auditCommand = true)
+    {
+        var native = host.AzureBastion?.ConnectionMode == BastionConnectionMode.Native;
+        await using var connection = await connectionPreparer.Prepare(host, useTunnel: !native, ct);
+        logger.LogInformation("Starting SSH session to {Alias}", host.Alias);
+        int exit;
+        if (native)
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "ssh",
-                Arguments = args,
-                UseShellExecute = false
-            }
-        };
-
-        process.Start();
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("SSH session to {Alias} exited with code {ExitCode}", host.Alias, process.ExitCode);
+            if (recorder?.ShouldRecord(host) == true) throw new NotSupportedException("Recording native Azure Bastion sessions is unavailable. Select tunnel mode with SSH key/password authentication to record output.");
+            exit = await bastionService.RunNativeSession(connection.Host, initialCommand, ct, connection.Environment, onStarted);
         }
         else
         {
-                    logger.LogInformation("SSH session to {Alias} completed", host.Alias);
+            var info = CreateSshStartInfo(connection, captureOutput: false, tty: initialCommand != null, initialCommand);
+            exit = recorder?.ShouldRecord(host) == true ? await recorder.Record(info, host, ct, onStarted) : (await runner.RunSession(info, onStarted, ct)).ExitCode;
         }
+        if (initialCommand != null && auditCommand) RecordCommand(host, initialCommand, exit);
+        logger.LogInformation("SSH session to {Alias} exited with code {ExitCode}", host.Alias, exit);
+        return exit;
     }
 
     public async Task<string> RunSshCommand(ServerHost host, string command)
     {
-            logger.LogInformation("Running remote command on {Alias}: {Command}", host.Alias, command);
+        var result = await RunSshCommandResult(host, command);
+        result.EnsureSuccess("Remote SSH command");
+        return result.StandardOutput + result.StandardError;
+    }
 
-        var psi = new ProcessStartInfo
+    public Task<ProcessResult> RunSshCommandResult(ServerHost host, string command, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input: null, sendInput: false, ct);
+
+    public Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input, sendInput: true, ct);
+
+    private async Task<ProcessResult> ExecuteCommand(ServerHost host, string command, string? input, bool sendInput, CancellationToken ct)
+    {
+        var elapsed = Stopwatch.StartNew();
+        try
         {
-            FileName = "ssh",
-            Arguments = $"{BuildSshArgs(host)} -- {command}",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = psi };
-
-        var outputBuilder = new StringBuilder();
-        var errorBuilder = new StringBuilder();
-
-        process.OutputDataReceived += (_, args) =>
-        {
-            if (args.Data is not null)
+            // AAD needs the CLI-issued SSH certificate; a TCP tunnel cannot authenticate it.
+            var aad = !sendInput && host.AzureBastion?.AuthType == BastionAuthType.Aad && host.KeySecretRef is null && host.PasswordSecretRef is null;
+            await using var connection = await connectionPreparer.Prepare(host, useTunnel: !aad, ct);
+            ProcessResult result;
+            if (aad) result = await bastionService.RunNativeCommand(connection.Host, command, ct, connection.Environment);
+            else
             {
-                outputBuilder.AppendLine(args.Data);
+                var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
+                result = sendInput ? await runner.RunWithInput(info, input!, ct) : await runner.Run(info, ct);
             }
-        };
-
-        process.ErrorDataReceived += (_, args) =>
-        {
-            if (args.Data is not null)
-            {
-                errorBuilder.AppendLine(args.Data);
-            }
-        };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await process.WaitForExitAsync();
-
-        var output = outputBuilder.ToString();
-        var error = errorBuilder.ToString();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("Remote command on {Alias} exited with code {ExitCode}: {Error}",
-                host.Alias, process.ExitCode, error);
+            RecordCommand(host, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
+            return result;
         }
-
-        if (!string.IsNullOrEmpty(error))
+        catch (Exception ex)
         {
-            output += error;
+            RecordCommand(host, command, null, elapsed.Elapsed.TotalSeconds, ex.GetType().Name);
+            throw;
         }
+    }
 
-        return output;
+    private void RecordCommand(ServerHost host, string command, int? exitCode, double? durationSeconds = null, string? error = null)
+    {
+        foreach (var password in new[] { host.SudoPassword, host.SshPassword })
+            if (!string.IsNullOrEmpty(password)) command = command.Replace(password, SshConnectionConstants.Redacted, StringComparison.Ordinal);
+        audit?.Record(new AuditEntry
+        {
+            EventType = SshConnectionConstants.CommandExecutedEvent,
+            Category = command.Contains(SshConnectionConstants.DockerCommandPrefix, StringComparison.Ordinal) ? SshConnectionConstants.DockerAuditCategory : SshConnectionConstants.CommandAuditCategory,
+            HostId = host.Id,
+            Alias = host.Alias,
+            Action = command,
+            Success = exitCode == 0,
+            ExitCode = exitCode,
+            DurationSeconds = durationSeconds,
+            ErrorMessage = error
+        });
     }
 
     public async Task RunSshInteractive(ServerHost host, string command)
     {
-        var sshArgs = BuildSshArgs(host);
-
-            logger.LogInformation("Running interactive remote command on {Alias}: {Command}", host.Alias, command);
-
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "ssh",
-                Arguments = $"{sshArgs} -t -- {command}",
-                UseShellExecute = false
-            }
-        };
-
-        process.Start();
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode != 0)
-        {
-                    logger.LogWarning("Interactive remote command on {Alias} exited with code {ExitCode}", host.Alias, process.ExitCode);
-        }
+        var exitCode = await RunSshSession(host, command);
+        new ProcessResult(exitCode, "", "").EnsureSuccess("Interactive remote SSH command");
     }
 
-    internal static string BuildSshArgs(ServerHost host)
+    public Task<ISshConnectionLease> PrepareConnection(ServerHost host, CancellationToken ct = default) => connectionPreparer.Prepare(host, true, ct);
+
+    private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)
     {
-        var sb = new StringBuilder();
-
-        sb.Append("-p ");
-        sb.Append(host.Port);
-
-        switch (host.AuthType)
-        {
-            case AuthType.SshKey when !string.IsNullOrWhiteSpace(host.IdentityFile):
-                sb.Append(" -i \"");
-                sb.Append(host.IdentityFile);
-                sb.Append('"');
-                break;
-
-            case AuthType.CustomConfig when !string.IsNullOrWhiteSpace(host.CustomSshOptions):
-                sb.Append(' ');
-                sb.Append(host.CustomSshOptions.Trim());
-                break;
-
-            case AuthType.Password:
-            case AuthType.SshAgent:
-            default:
-                break;
-        }
-
-        sb.Append(' ');
-        sb.Append(host.User);
-        sb.Append('@');
-        sb.Append(host.HostName);
-
-        return sb.ToString();
+        var info = new ProcessStartInfo { FileName = SshConnectionConstants.Executable, UseShellExecute = false, RedirectStandardOutput = captureOutput, RedirectStandardError = captureOutput, CreateNoWindow = captureOutput };
+        foreach (var argument in SshArguments.Build(connection.Host, tty, command)) info.ArgumentList.Add(argument);
+        foreach (var variable in connection.Environment) info.Environment[variable.Key] = variable.Value;
+        return info;
     }
 }

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Sshocked.Services;
 
 namespace Sshocked.Logging;
 
@@ -29,7 +30,7 @@ public sealed class FileLogger(string categoryName, FileLoggerProcessor processo
             Timestamp = DateTimeOffset.UtcNow,
             LogLevel = logLevel,
             CategoryName = categoryName,
-            Message = message
+            Message = AuditRedactor.Redact(message) ?? string.Empty
         });
     }
 }

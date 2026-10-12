@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Sshocked.Interfaces;
@@ -9,7 +7,9 @@ namespace Sshocked.Services;
 
 public sealed class ContainerGroupService(
     IProcessService processService,
+    ITerminalLauncherService terminals,
     IConsoleHelperService consoleHelper,
+    ISecretProviderRegistry secrets,
     ILogger<ContainerGroupService> logger) : IContainerGroupService
 {
     public ServerHost? FindParentServer(AppConfig config, ContainerModel container)
@@ -42,117 +42,15 @@ public sealed class ContainerGroupService(
 
     public async Task ExecAllMultiTab(AppConfig config, List<ContainerModel> containers)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            await LaunchWindowsTerminalTabs(config, containers);
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            await LaunchLinuxTerminals(config, containers);
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            await LaunchMacTerminals(config, containers);
-        }
-
-        AnsiConsole.MarkupLine(
-            $"[green]\u2713[/] Launched [cyan]{containers.Count}[/] container connection{(containers.Count == 1 ? "" : "s")}.");
-    }
-
-    private async Task LaunchWindowsTerminalTabs(AppConfig config, List<ContainerModel> containers)
-    {
+        var launched = 0;
         foreach (var container in containers)
         {
             var server = FindParentServer(config, container);
             if (server is null) continue;
-
-            var sshArgs = ProcessService.BuildSshArgs(server);
-            var sudo = BuildSudoPrefix(server.SudoPassword);
-            var command = $"{sudo}docker exec -it {container.Name} sh";
-            var fullArgs = $"{sshArgs} -t -- {command}";
-
-            logger.LogInformation(
-                "Launching new Windows Terminal tab for container {ContainerAlias}: ssh {Args}",
-                container.Alias ?? container.Name, fullArgs);
-
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "wt.exe",
-                    Arguments = $"-w 0 nt ssh {fullArgs}",
-                    UseShellExecute = false
-                }
-            };
-            process.Start();
-            await Task.Delay(500);
+            try { await terminals.Launch(server, container); launched++; }
+            catch (Exception ex) { logger.LogWarning(ex, "Container terminal launch failed"); AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]"); }
         }
-    }
-
-    private async Task LaunchLinuxTerminals(AppConfig config, List<ContainerModel> containers)
-    {
-        var terminalCmd = DetectLinuxTerminal();
-
-        foreach (var container in containers)
-        {
-            var server = FindParentServer(config, container);
-            if (server is null) continue;
-
-            var sshArgs = ProcessService.BuildSshArgs(server);
-            var sudo = BuildSudoPrefix(server.SudoPassword);
-            var command = $"{sudo}docker exec -it {container.Name} sh";
-            var fullArgs = $"{sshArgs} -t -- {command}";
-
-            logger.LogInformation(
-                "Launching new terminal for container {ContainerAlias}: {Cmd} ssh {Args}",
-                container.Alias ?? container.Name, terminalCmd, fullArgs);
-
-            var parts = terminalCmd.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            var fileName = parts[0];
-            var extraArgs = parts.Length > 1 ? parts[1] + " " : "";
-
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = fileName,
-                    Arguments = $"{extraArgs}ssh {fullArgs}",
-                    UseShellExecute = false
-                }
-            };
-            process.Start();
-            await Task.Delay(500);
-        }
-    }
-
-    private async Task LaunchMacTerminals(AppConfig config, List<ContainerModel> containers)
-    {
-        foreach (var container in containers)
-        {
-            var server = FindParentServer(config, container);
-            if (server is null) continue;
-
-            var sshArgs = ProcessService.BuildSshArgs(server);
-            var sudo = BuildSudoPrefix(server.SudoPassword);
-            var command = $"{sudo}docker exec -it {container.Name} sh";
-            var fullArgs = $"{sshArgs} -t -- {command}";
-
-            logger.LogInformation(
-                "Launching new Terminal.app window for container {ContainerAlias}: ssh {Args}",
-                container.Alias ?? container.Name, fullArgs);
-
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "open",
-                    Arguments = $"-a Terminal ssh {fullArgs}",
-                    UseShellExecute = false
-                }
-            };
-            process.Start();
-            await Task.Delay(500);
-        }
+        AnsiConsole.MarkupLine($"[green]Launched {launched}/{containers.Count} container connection(s).[/]");
     }
 
     public async Task RunCommandOnAll(AppConfig config, List<ContainerModel> containers, string command)
@@ -175,9 +73,8 @@ public sealed class ContainerGroupService(
 
             try
             {
-                var sudo = BuildSudoPrefix(server.SudoPassword);
-                var dockerCommand = $"{sudo}docker exec {container.Name} {command}";
-                var output = await processService.RunSshCommand(server, dockerCommand);
+                var dockerCommand = $"docker exec -- {DockerCommandSyntax.QuoteContainerName(container.Name)} {command}";
+                var output = await DockerSudo.Run(processService, secrets, server, dockerCommand);
                 Console.Write(output);
 
                 if (!output.EndsWith('\n'))
@@ -193,21 +90,11 @@ public sealed class ContainerGroupService(
             AnsiConsole.WriteLine();
         }
 
-        await Task.CompletedTask;
-    }
-
-    private static string BuildSudoPrefix(string? sudoPassword)
-    {
-        if (string.IsNullOrEmpty(sudoPassword))
-            return "sudo ";
-
-        var escaped = sudoPassword.Replace("'", "'\\''");
-        return $"echo '{escaped}' | sudo -S ";
     }
 
     private static void EnsureSudoPassword(ServerHost host)
     {
-        if (string.IsNullOrEmpty(host.SudoPassword))
+        if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
         {
             var needsSudo = AnsiConsole.Confirm("Does this host require [yellow]sudo[/] to run Docker commands?", false);
             if (needsSudo)
@@ -219,20 +106,4 @@ public sealed class ContainerGroupService(
         }
     }
 
-    private static string DetectLinuxTerminal()
-    {
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KONSOLE_VERSION")))
-            return "konsole --new-tab -e";
-
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GNOME_TERMINAL_SCREEN")))
-            return "gnome-terminal --";
-
-        if (Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")?.Contains("XFCE", StringComparison.OrdinalIgnoreCase) == true)
-            return "xfce4-terminal -e";
-
-        if (Environment.GetEnvironmentVariable("DESKTOP_SESSION")?.Contains("LXDE", StringComparison.OrdinalIgnoreCase) == true)
-            return "lxterminal -e";
-
-        return "x-terminal-emulator -e";
-    }
 }

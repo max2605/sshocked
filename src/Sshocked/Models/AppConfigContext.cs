@@ -3,6 +3,9 @@ using System.Text.Json.Serialization;
 namespace Sshocked.Models;
 
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(RecentConnection))]
+[JsonSerializable(typeof(AuditEntry))]
+[JsonSerializable(typeof(List<AuditEntry>))]
 [JsonSerializable(typeof(ServerGroup))]
 [JsonSerializable(typeof(ServerHost))]
 [JsonSerializable(typeof(AuthType))]
@@ -13,6 +16,7 @@ namespace Sshocked.Models;
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-public partial class AppConfigContext : JsonSerializerContext
+// The JSON source generator requires partial declarations for Native AOT serialization.
+public sealed partial class AppConfigContext : JsonSerializerContext
 {
 }
