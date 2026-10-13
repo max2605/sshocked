@@ -5,7 +5,8 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiChromeService chrome, IConsoleHelperService console, ILogger<MenuFactory> logger) : IMenuFactory
+public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiChromeService chrome, IConsoleHelperService console,
+    IConfigRepository repository, ILogger<MenuFactory> logger) : IMenuFactory
 {
     public async Task<bool> RunMenu(string title, List<MenuEntry> entries)
     {
@@ -23,7 +24,8 @@ public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiCh
             catch (Exception error)
             {
                 logger.LogError(error, "Menu action failed");
-                AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(AuditRedactor.Redact(error.Message) ?? "Action failed")}[/]");
+                var palette = UiThemePalette.For(repository.Load().UI.Theme);
+                AnsiConsole.MarkupLine($"[{palette.Error}]Error: {Markup.Escape(AuditRedactor.Redact(error.Message) ?? "Action failed")}[/]");
                 if (AnsiConsole.Profile.Capabilities.Interactive) console.WaitForKey();
             }
         }
