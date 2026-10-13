@@ -55,9 +55,11 @@ jobs:
 
       - name: Publish Native AOT Binary
         run: |
+          $releaseVersion = $env:GITHUB_REF_NAME -replace '^v', ''
           dotnet publish src/Sshocked/Sshocked.csproj `
             -c Release `
             -r ${{ matrix.rid }} `
+            -p:Version=$releaseVersion `
             --self-contained true `
             -o ./publish
         shell: pwsh
