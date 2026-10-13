@@ -5,8 +5,9 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class SettingsMenuService(IConfigRepository configRepository, IMenuFactory menuFactory,
-    ISecretConfigurationUi secretUi, SessionRecordingConfigurationUi recordingUi,
-    IUiSettingsMenuService uiSettings, IConsoleHelperService consoleHelper) : ISettingsMenuService
+    ISecretConfigurationUi secretUi, IActivityMenuService activity,
+    IUiSettingsMenuService uiSettings, IConsoleHelperService consoleHelper, ILocalCredentialService localCredentials,
+    IUiChromeService chrome, IPathInputService paths) : ISettingsMenuService
 {
     public async Task Show()
     {
@@ -15,20 +16,21 @@ public sealed class SettingsMenuService(IConfigRepository configRepository, IMen
         {
             var config = configRepository.Load();
             AnsiConsole.Clear();
-            var currentStrategy = config.DefaultConnectionStrategy == ConnectionStrategy.MultiTab ? "Multi-Tab" : "Sequential";
-            AnsiConsole.MarkupLine("[bold yellow]Settings[/]");
+            chrome.RenderBreadcrumb("Main", "Settings");
+            var palette = UiThemePalette.For(config.UI.Theme);
+            AnsiConsole.MarkupLine($"[bold {palette.Accent}]Settings[/]");
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"  Default connection strategy: [green]{currentStrategy}[/]");
+            AnsiConsole.MarkupLine($"  Group connections: [{palette.Success}]parallel multi-tab[/]");
             AnsiConsole.WriteLine();
 
             var entries = new List<MenuEntry>
             {
                 new("Display settings", 'V', executeAsync: uiSettings.Show),
                 new("Manage secret providers", 'P', executeAsync: secretUi.Show),
-                new("Session recording", 'O', executeAsync: recordingUi.Show),
+                new("Activity and recording", 'O', executeAsync: activity.Show),
                 new("Global connection hooks", 'K', executeAsync: () =>
                 {
-                    var hooks = HookConfigurationUi.ConfigureGlobal(config.GlobalHooks);
+                    var hooks = HookConfigurationUi.ConfigureGlobal(config.GlobalHooks, paths);
                     configRepository.Update(current => current.GlobalHooks = hooks);
                     return Task.CompletedTask;
                 }),
@@ -37,20 +39,21 @@ public sealed class SettingsMenuService(IConfigRepository configRepository, IMen
                     configRepository.Update(current => current.TrackRecentConnections = !current.TrackRecentConnections);
                     return Task.CompletedTask;
                 }),
-                new("Default to Multi-Tab (parallel)", 'M', executeAsync: () => SetStrategy(ConnectionStrategy.MultiTab)),
-                new("Default to Sequential (one after another)", 'Q', executeAsync: () => SetStrategy(ConnectionStrategy.Sequential)),
+                new("Clear all saved local passwords", 'L', executeAsync: ClearLocalPasswords),
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
             running = await menuFactory.RunMenu("[bold yellow]Settings[/]", entries);
         }
     }
 
-    private Task SetStrategy(ConnectionStrategy strategy)
+    private Task ClearLocalPasswords()
     {
-        configRepository.Update(config => config.DefaultConnectionStrategy = strategy);
-        var label = strategy == ConnectionStrategy.MultiTab ? "Multi-Tab" : "Sequential";
-        AnsiConsole.MarkupLine($"[green]✓ Default strategy set to {label}[/]");
-        consoleHelper.WaitForKey();
+        if (AnsiConsole.Confirm("Clear all locally saved SSH passwords?", false))
+        {
+            localCredentials.ClearAll();
+            AnsiConsole.MarkupLine("[green]Saved local passwords cleared.[/]");
+            consoleHelper.WaitForKey();
+        }
         return Task.CompletedTask;
     }
 }

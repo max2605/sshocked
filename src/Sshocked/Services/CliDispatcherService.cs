@@ -4,7 +4,7 @@ using Sshocked.Interfaces;
 
 namespace Sshocked.Services;
 
-public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger) : ICliDispatcherService
+public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger, IGroupConnectionService groupConnections) : ICliDispatcherService
 {
 
     public async Task<bool> Dispatch(ParseResult parseResult)
@@ -158,11 +158,7 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
             logger.LogInformation("Direct connect to group '{GroupName}' ({Count} hosts)", group.Name, groupHosts.Count);
 
-            foreach (var groupHost in groupHosts)
-            {
-                Console.WriteLine($"Connecting to {groupHost.Alias} ({groupHost.HostName})...");
-                await sshRunner.Connect(groupHost);
-            }
+            await groupConnections.ConnectAllMultiTab(groupHosts);
 
             return true;
         }
@@ -190,6 +186,9 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         Console.WriteLine("  ssk audit status|enable|disable|settings  Configure audit logging");
         Console.WriteLine("  ssk sessions list|replay|export|delete   Manage output recordings");
         Console.WriteLine("  ssk sessions status|enable|disable      Configure recording policy");
+        Console.WriteLine("  ssk activity status|events|recordings|audit  Audit and playback in one module");
+        Console.WriteLine("  ssk macros list|record --server ALIAS       Record commands in a persistent session");
+        Console.WriteLine("  ssk macros run NAME --server ALIAS|--group NAME|--tag TAG  Execute a saved macro");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  ssk prod-db-01             Connect to server 'prod-db-01'");
