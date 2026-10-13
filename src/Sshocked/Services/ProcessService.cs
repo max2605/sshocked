@@ -47,10 +47,13 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
     public Task<ProcessResult> RunSshCommandResult(ServerHost host, string command, CancellationToken ct = default)
         => ExecuteCommand(host, command, input: null, sendInput: false, ct);
 
+    public Task<ProcessResult> RunSshCommandStreaming(ServerHost host, string command, Action<string> output, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input: null, sendInput: false, ct, output);
+
     public Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
         => ExecuteCommand(host, command, input, sendInput: true, ct);
 
-    private async Task<ProcessResult> ExecuteCommand(ServerHost host, string command, string? input, bool sendInput, CancellationToken ct)
+    private async Task<ProcessResult> ExecuteCommand(ServerHost host, string command, string? input, bool sendInput, CancellationToken ct, Action<string>? output = null)
     {
         var elapsed = Stopwatch.StartNew();
         var auditHost = host;
@@ -61,11 +64,16 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             await using var connection = await connectionPreparer.Prepare(host, useTunnel: !aad, ct);
             auditHost = connection.Host;
             ProcessResult result;
-            if (aad) result = await bastionService.RunNativeCommand(connection.Host, command, ct, connection.Environment);
+            if (aad)
+            {
+                if (output is not null) throw new NotSupportedException("Live command output requires an SSH connection or Bastion tunnel with key/password authentication.");
+                result = await bastionService.RunNativeCommand(connection.Host, command, ct, connection.Environment);
+            }
             else
             {
                 var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
-                result = sendInput ? await runner.RunWithInput(info, input!, ct) : await runner.Run(info, ct);
+                result = sendInput ? await runner.RunWithInput(info, input!, ct)
+                    : output is null ? await runner.Run(info, ct) : await runner.RunStreaming(info, output, ct);
             }
             RecordCommand(auditHost, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
             return result;

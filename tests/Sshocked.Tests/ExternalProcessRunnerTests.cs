@@ -6,6 +6,41 @@ namespace Sshocked.Tests;
 public sealed class ExternalProcessRunnerTests
 {
     [Fact]
+    public async Task StreamingDeliversOutputBeforeTheChildExits()
+    {
+        var releasePath = Path.Combine(Path.GetTempPath(), "sshocked-stream-release-" + Guid.NewGuid().ToString("N"));
+        var info = Shell(OperatingSystem.IsWindows()
+            ? "[Console]::WriteLine('ready'); while (-not [IO.File]::Exists($env:SSHOCKED_TEST_RELEASE)) { Start-Sleep -Milliseconds 20 }; [Console]::Error.WriteLine('last-error'); exit 7"
+            : "echo ready; while [ ! -f \"$SSHOCKED_TEST_RELEASE\" ]; do sleep 0.02; done; echo last-error >&2; exit 7");
+        info.Environment["SSHOCKED_TEST_RELEASE"] = releasePath;
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var chunks = new System.Text.StringBuilder();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var operation = new ExternalProcessRunner().RunStreaming(info, chunk =>
+        {
+            chunks.Append(chunk);
+            if (chunks.ToString().Contains("ready", StringComparison.Ordinal)) ready.TrySetResult();
+        }, timeout.Token);
+        try
+        {
+            await ready.Task.WaitAsync(timeout.Token);
+            Assert.False(operation.IsCompleted);
+            await File.WriteAllTextAsync(releasePath, "release", timeout.Token);
+            var result = await operation;
+            Assert.Equal(7, result.ExitCode);
+            Assert.Contains("ready", result.StandardOutput);
+            Assert.Contains("last-error", result.StandardError);
+            Assert.Contains("last-error", chunks.ToString());
+        }
+        finally
+        {
+            timeout.Cancel();
+            try { await operation; } catch (OperationCanceledException) { }
+            if (File.Exists(releasePath)) File.Delete(releasePath);
+        }
+    }
+
+    [Fact]
     public async Task CapturedStdoutAndStderrDrainConcurrentlyWithoutDeadlock()
     {
         var info = Shell(OperatingSystem.IsWindows()

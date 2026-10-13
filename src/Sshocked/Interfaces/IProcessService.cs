@@ -6,6 +6,13 @@ public interface IProcessService
 {
     Task RunSsh(ServerHost host);
     Task<string> RunSshCommand(ServerHost host, string command);
+    async Task<ProcessResult> RunSshCommandStreaming(ServerHost host, string command, Action<string> output, CancellationToken ct = default)
+    {
+        var result = await RunSshCommandResult(host, command, ct);
+        if (result.StandardOutput.Length > 0) output(result.StandardOutput);
+        if (result.StandardError.Length > 0) output(result.StandardError);
+        return result;
+    }
     Task RunSshInteractive(ServerHost host, string command);
     async Task<int> RunSshSession(ServerHost host, string? initialCommand = null, CancellationToken ct = default, Func<Task>? onStarted = null, bool auditCommand = true)
     {
