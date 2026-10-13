@@ -37,6 +37,8 @@ public sealed class ServiceRegistrationTests
             Assert.NotNull(provider.GetRequiredService<IMacroService>());
             Assert.NotNull(provider.GetRequiredService<IManagedCommandSessionService>());
             Assert.NotNull(provider.GetRequiredService<ITagMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IHostResolutionService>());
+            Assert.NotNull(provider.GetRequiredService<IDnsResolver>());
         }
         finally
         {

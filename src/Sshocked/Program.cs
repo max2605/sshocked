@@ -11,15 +11,22 @@ internal sealed class Program
 {
     private static async Task Main(string[] args)
     {
+        // Establish Unicode before Spectre detects capabilities or captures Console.Out.
+        // Legacy Windows code pages replace badge characters and change their displayed width.
+        Console.OutputEncoding = new UTF8Encoding(false);
+
         // OpenSSH invokes this executable as an askpass helper with a prompt argument.
         // Resolve it before configuration, DI and logging so only the requested password reaches stdout.
         if (Environment.GetEnvironmentVariable(SshAskPass.HelperEnvironment) == "1")
         {
-            // OpenSSH consumes UTF-8 helper output; legacy console code pages can corrupt saved passwords.
-            Console.OutputEncoding = new UTF8Encoding(false);
             Console.WriteLine(Environment.GetEnvironmentVariable(SshAskPass.PasswordEnvironment) ?? "");
             return;
         }
+
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new TerminalConsoleOutput()
+        });
 
         var services = new ServiceCollection();
         ServiceRegistration.Configure(services);

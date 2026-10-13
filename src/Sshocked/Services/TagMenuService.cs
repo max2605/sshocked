@@ -16,16 +16,19 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
             var config = repository.Load();
             var available = tags.GetAll(config.Hosts);
             var palette = UiThemePalette.For(config.UI.Theme);
-            AnsiConsole.Clear();
-            chrome.RenderBreadcrumb("Main", "Servers", "Tags");
-            AnsiConsole.MarkupLine($"[{palette.Muted}]Tags select current servers across static groups. Edit a server to assign tags.[/]");
-            if (available.Count == 0) AnsiConsole.MarkupLine($"[{palette.Muted}]No server tags assigned yet.[/]");
+            void RenderView()
+            {
+                AnsiConsole.Clear();
+                chrome.RenderBreadcrumb("Main", "Servers", "Tags");
+                AnsiConsole.MarkupLine($"[{palette.Muted}]Tags select current servers across static groups. Edit a server to assign tags.[/]");
+                if (available.Count == 0) AnsiConsole.MarkupLine($"[{palette.Muted}]No server tags assigned yet.[/]");
+            }
             var entries = available.Select(tag => new MenuEntry($"{Markup.Escape(tag)} [grey]({tags.Filter(config.Hosts, [tag]).Count} servers)[/]",
                 executeAsync: () => ShowTargets([tag]))).ToList();
             if (available.Count > 1)
                 entries.Add(new("Filter by multiple tags", 'T', executeAsync: () => SelectTags(available, config)));
             entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-            if (!await menus.RunMenu("[bold yellow]Filter Servers by Tag[/]", entries)) return;
+            if (!await menus.RunMenu("[bold yellow]Filter Servers by Tag[/]", entries, RenderView)) return;
         }
     }
 
@@ -46,10 +49,13 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
         {
             var config = repository.Load();
             var hosts = tags.Filter(config.Hosts, selectedTags);
-            AnsiConsole.Clear();
-            chrome.RenderBreadcrumb("Main", "Servers", "Tags", label);
-            tables.RenderGroup("Tags: " + label, hosts);
-            AnsiConsole.MarkupLine($"[{UiThemePalette.For(config.UI.Theme).Muted}]{hosts.Count} servers match all selected tags. Membership refreshes after each action.[/]");
+            void RenderView()
+            {
+                AnsiConsole.Clear();
+                chrome.RenderBreadcrumb("Main", "Servers", "Tags", label);
+                tables.RenderGroup("Tags: " + label, hosts);
+                AnsiConsole.MarkupLine($"[{UiThemePalette.For(config.UI.Theme).Muted}]{hosts.Count} servers match all selected tags. Membership refreshes after each action.[/]");
+            }
             var entries = new List<MenuEntry>();
             if (hosts.Count > 0)
             {
@@ -61,7 +67,7 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
                 entries.Add(new("Download from matching servers", 'O', executeAsync: () => transfers.DownloadGroup(hosts)));
             }
             entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-            if (!await menus.RunMenu("[bold yellow]Tag Actions[/]", entries)) return;
+            if (!await menus.RunMenu("[bold yellow]Tag Actions[/]", entries, RenderView)) return;
         }
     }
 
