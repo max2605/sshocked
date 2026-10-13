@@ -23,6 +23,10 @@ case "$ARCH" in x86_64|amd64) ARCH="x64" ;; aarch64|arm64) ARCH="arm64" ;;
 esac
 
 RID="${OS}-${ARCH}"
+case "$RID" in
+  linux-x64|linux-arm64|osx-x64) ;;
+  *) die "No release package for ${RID}. Supported: linux-x64, linux-arm64, osx-x64." ;;
+esac
 info "Detected: ${RID}"
 
 info "Fetching latest release..."
