@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Sshocked.Interfaces;
 using Sshocked.Models;
@@ -112,7 +113,16 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
 
     private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)
     {
-        var info = new ProcessStartInfo { FileName = SshConnectionConstants.Executable, UseShellExecute = false, RedirectStandardOutput = captureOutput, RedirectStandardError = captureOutput, CreateNoWindow = captureOutput };
+        var info = new ProcessStartInfo
+        {
+            FileName = SshConnectionConstants.Executable,
+            UseShellExecute = false,
+            RedirectStandardOutput = captureOutput,
+            RedirectStandardError = captureOutput,
+            CreateNoWindow = captureOutput,
+            StandardOutputEncoding = captureOutput ? Encoding.UTF8 : null,
+            StandardErrorEncoding = captureOutput ? Encoding.UTF8 : null
+        };
         foreach (var argument in SshArguments.Build(connection.Host, tty, command)) info.ArgumentList.Add(argument);
         foreach (var variable in connection.Environment) info.Environment[variable.Key] = variable.Value;
         return info;

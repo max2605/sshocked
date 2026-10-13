@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Text;
 using Spectre.Console;
 using Sshocked.Interfaces;
 using Sshocked.Services;
@@ -14,6 +15,8 @@ internal sealed class Program
         // Resolve it before configuration, DI and logging so only the requested password reaches stdout.
         if (Environment.GetEnvironmentVariable(SshAskPass.HelperEnvironment) == "1")
         {
+            // OpenSSH consumes UTF-8 helper output; legacy console code pages can corrupt saved passwords.
+            Console.OutputEncoding = new UTF8Encoding(false);
             Console.WriteLine(Environment.GetEnvironmentVariable(SshAskPass.PasswordEnvironment) ?? "");
             return;
         }
