@@ -10,7 +10,7 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
     ITableRendererService tableRenderer, IConsoleHelperService console, IMenuFactory menu,
     IQuickAccessMenuService quickAccess, ISshConfigSyncMenuService sshConfigSyncMenu,
     IQuickConnectionMenuService connections, ISettingsMenuService settings,
-    IUiChromeService chrome, ILogger<MainMenuService> logger) : IMainMenuService
+    IUiChromeService chrome, ILogger<MainMenuService> logger, ITagMenuService tags, IMacroMenuService macros) : IMainMenuService
 {
     public async Task Show()
     {
@@ -31,6 +31,7 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
                 new("Quick Connect", 'C', executeAsync: () => connections.ConnectServer(config)),
                 new("Connect Group", 'G', executeAsync: () => connections.ConnectGroup(config)),
                 new("Run command", 'X', executeAsync: () => connections.RunGroupCommand(config)),
+                new("Macros", 'M', executeAsync: macros.Show),
                 new("SSH Config Sync", 'Y', executeAsync: sshConfigSyncMenu.Show),
                 new("Manage Servers", 'S', executeAsync: ShowServersMenu),
                 new("Manage Groups", 'R', executeAsync: ShowGroupsMenu),
@@ -46,10 +47,11 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         var running = true;
         while (running)
         {
-            RenderMain(repository.Load());
+            RenderMain(repository.Load(), "Main", "Servers");
             var entries = new List<MenuEntry>
             {
                 new("Browse / Manage", 'S', executeAsync: serverMenu.SelectServer),
+                new("Filter / Operate by Tag", 'T', executeAsync: tags.Show),
                 new("Add Server", 'A', executeAsync: () => { AddServer(); return Task.CompletedTask; }),
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
@@ -62,7 +64,7 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         var running = true;
         while (running)
         {
-            RenderMain(repository.Load());
+            RenderMain(repository.Load(), "Main", "Groups");
             var entries = new List<MenuEntry>
             {
                 new("Browse / Manage", 'S', executeAsync: groupMenu.Browse),
@@ -73,10 +75,10 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         }
     }
 
-    private void RenderMain(AppConfig config)
+    private void RenderMain(AppConfig config, params string[] breadcrumbs)
     {
         AnsiConsole.Clear();
-        chrome.RenderBreadcrumb("Main");
+        chrome.RenderBreadcrumb(breadcrumbs.Length > 0 ? breadcrumbs : ["Main"]);
         tableRenderer.RenderServerTable(config);
     }
 
@@ -91,9 +93,12 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
 
     private void CreateGroup()
     {
-        var name = AnsiConsole.Ask<string>("Enter [green]group name[/] (or leave empty to cancel):");
+        var name = AnsiConsole.Prompt(new TextPrompt<string>("Enter [green]group name[/] (empty cancels):").AllowEmpty());
         if (string.IsNullOrWhiteSpace(name))
+        {
             AnsiConsole.MarkupLine("[grey]Create group cancelled.[/]");
+            return;
+        }
         else
         {
             groups.Create(name.Trim());
