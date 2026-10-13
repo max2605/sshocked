@@ -5,7 +5,8 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class ServerFormService(IGroupManagementService groups, ISshKeyPickerService keyPicker,
-    ISecretConfigurationUi secrets) : IServerFormService
+    ISecretConfigurationUi secrets, IPathInputService paths, IServerTagService tagsService,
+    LocalCredentialUi? localCredentials = null) : IServerFormService
 {
     public ServerHost? Fill(AppConfig config, ServerHost? existing = null)
     {
@@ -27,7 +28,7 @@ public sealed class ServerFormService(IGroupManagementService groups, ISshKeyPic
         if (existing is not null)
             groupPrompt.DefaultValue(availableGroups.FirstOrDefault(group => group.Id == existing.GroupId)?.Name ?? ServerFormLabels.NoGroup);
         var groupName = AnsiConsole.Prompt(groupPrompt);
-        var tagsPrompt = new TextPrompt<string>("[green]Tags[/] (comma-separated):");
+        var tagsPrompt = new TextPrompt<string>("[green]Tags[/] (comma-separated, '-' clears all):");
         if (existing is null) tagsPrompt.AllowEmpty();
         else tagsPrompt.DefaultValue(string.Join(", ", existing.Tags));
         var tags = AnsiConsole.Prompt(tagsPrompt);
@@ -51,7 +52,8 @@ public sealed class ServerFormService(IGroupManagementService groups, ISshKeyPic
         host.User = user.Trim();
         host.Port = port;
         host.GroupId = groupName == ServerFormLabels.NoGroup ? string.Empty : availableGroups.First(group => group.Name == groupName).Id;
-        host.Tags = tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        host.Tags = tagsService.Normalize(tags.Trim() == "-" ? []
+            : tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         host.AuthType = authentication switch
         {
             ServerFormLabels.Password => AuthType.Password,
@@ -74,8 +76,9 @@ public sealed class ServerFormService(IGroupManagementService groups, ISshKeyPic
         if (authentication == ServerFormLabels.KeyVault || AnsiConsole.Confirm("Configure secret references for this host?", hasSecrets))
             secrets.ConfigureHost(host);
         if (AnsiConsole.Confirm("Configure connection hooks?", host.Hooks is not null))
-            host.Hooks = HookConfigurationUi.Configure(host.Hooks);
+            host.Hooks = HookConfigurationUi.Configure(host.Hooks, paths);
         host.RecordSession = SessionRecordingConfigurationUi.ConfigureHost(host.RecordSession);
+        localCredentials?.Configure(host);
         return host;
     }
 

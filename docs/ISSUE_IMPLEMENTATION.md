@@ -61,7 +61,7 @@ Diagnostic and audit logs redact common password/token patterns, but arbitrary c
 - Output recording uses pipes, with inherited stdin. It does not emulate a terminal, capture keystrokes, provide script(1) files, or record native Bastion sessions. Full PTY capture remains a follow-up for #35. Cast export is not video encoding.
 - Recording retention excludes active/incomplete files so another process's recording survives cleanup. Interrupted recordings require explicit deletion. The size setting is a completed-recording cleanup target, not a live disk quota.
 - SSH config export refuses symbolic-link destinations to preserve link identity. Select a physical destination. Import does not evaluate dynamic `Match` blocks; monitoring covers the main file and the selected managed Include file.
-- Reachability checks are optional TCP probes and do not validate SSH credentials. They are off initially.
+- Reachability checks are TCP probes and do not validate SSH credentials. They are enabled by default and can be disabled in Display settings.
 
 ## Validation
 

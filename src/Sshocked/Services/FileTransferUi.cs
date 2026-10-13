@@ -4,7 +4,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class FileTransferUi(IFileTransferService transferService)
+public sealed class FileTransferUi(IFileTransferService transferService, IPathInputService paths)
 {
     public async Task Upload(ServerHost host, bool quick = false)
     {
@@ -84,10 +84,9 @@ public sealed class FileTransferUi(IFileTransferService transferService)
         if (selectedHosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]This group has no servers.[/]"); return; }
         var remote = PromptPath("Remote file or directory on every server");
         if (remote is null) return;
-        var local = AnsiConsole.Prompt(new TextPrompt<string>("[green]Local destination directory[/] (empty cancels):")
-            .AllowEmpty().Validate(value => string.IsNullOrWhiteSpace(value) || Directory.Exists(value)
-                ? ValidationResult.Success() : ValidationResult.Error("[red]The directory does not exist.[/]")));
-        if (string.IsNullOrWhiteSpace(local)) return;
+        var local = paths.Prompt("Local destination directory", validate: value => Directory.Exists(value)
+            ? null : "The directory does not exist.");
+        if (local is null) return;
         var recursive = AnsiConsole.Confirm("Copy directories recursively?", false);
         if (!AnsiConsole.Confirm($"Download from [yellow]{selectedHosts.Count}[/] servers using separate filenames?")) return;
         await RunGroup(() => transferService.DownloadFromGroup(selectedHosts, remote, local, recursive));
@@ -103,7 +102,7 @@ public sealed class FileTransferUi(IFileTransferService transferService)
         await RunTransfer(() => transferService.DownloadFile(host, remote, local, recursive));
     }
 
-    private static string? SelectLocalPath(bool quick)
+    private string? SelectLocalPath(bool quick)
     {
         if (quick)
         {
@@ -115,21 +114,11 @@ public sealed class FileTransferUi(IFileTransferService transferService)
             if (selected == choices[1]) return null;
             if (selected.Path is not null) return selected.Path;
         }
-        var path = AnsiConsole.Prompt(new TextPrompt<string>("[green]Local file or directory[/] (empty cancels):")
-            .AllowEmpty().Validate(value => string.IsNullOrWhiteSpace(value) || File.Exists(value) || Directory.Exists(value)
-                ? ValidationResult.Success() : ValidationResult.Error("[red]The file or directory does not exist.[/]")));
-        return string.IsNullOrWhiteSpace(path) ? null : path;
+        return paths.Prompt("Local file or directory", validate: value => File.Exists(value) || Directory.Exists(value)
+            ? null : "The file or directory does not exist.");
     }
 
-    private static string? PromptPath(string label, string? defaultValue = null)
-    {
-        var prompt = new TextPrompt<string>($"[green]{Markup.Escape(label)}[/] (empty cancels):").AllowEmpty()
-            .Validate(value => value.IndexOfAny(['\0', '\r', '\n']) < 0
-                ? ValidationResult.Success() : ValidationResult.Error("[red]Paths must not contain line breaks or NUL.[/]"));
-        if (!string.IsNullOrWhiteSpace(defaultValue)) prompt.DefaultValue(defaultValue);
-        var path = AnsiConsole.Prompt(prompt);
-        return string.IsNullOrWhiteSpace(path) ? null : path;
-    }
+    private string? PromptPath(string label, string? defaultValue = null) => paths.Prompt(label, defaultValue);
 
     private static async Task RunTransfer(Func<Task<int>> transfer)
     {

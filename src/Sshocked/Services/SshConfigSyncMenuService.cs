@@ -6,7 +6,7 @@ namespace Sshocked.Services;
 
 public sealed class SshConfigSyncMenuService(ISshConfigSyncService sync, ISshConfigImporter importer,
     IConfigRepository repository, IMenuFactory menus, IConsoleHelperService consoleHelper,
-    IConsoleWriterService console) : ISshConfigSyncMenuService
+    IConsoleWriterService console, IPathInputService paths) : ISshConfigSyncMenuService
 {
     public async Task Show()
     {
@@ -99,8 +99,8 @@ public sealed class SshConfigSyncMenuService(ISshConfigSyncService sync, ISshCon
         settings.Strategy = AnsiConsole.Prompt(new SelectionPrompt<ExportStrategy>().Title("Export strategy:")
             .AddChoices(ExportStrategy.MarkedBlocks, ExportStrategy.IncludeFile).DefaultValue(settings.Strategy));
         if (settings.Strategy == ExportStrategy.IncludeFile)
-            settings.IncludeFilePath = AnsiConsole.Prompt(new TextPrompt<string>("Include file path:")
-                .DefaultValue(SshConfigExporter.ResolveIncludePath(settings.IncludeFilePath)));
+            settings.IncludeFilePath = paths.Prompt("Include file path", SshConfigExporter.ResolveIncludePath(settings.IncludeFilePath))
+                ?? settings.IncludeFilePath;
         settings.ExportAllHosts = AnsiConsole.Confirm("Export all hosts?", settings.ExportAllHosts);
         if (!settings.ExportAllHosts)
             settings.ExportTags = ParseList(AnsiConsole.Prompt(new TextPrompt<string>("Export hosts with these tags (comma-separated):")

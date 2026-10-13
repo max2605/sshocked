@@ -7,43 +7,48 @@ public static class HostVisuals
 {
     public static string AuthBadge(ServerHost host, string theme = "Dark")
     {
-        var light = theme.Equals("Light", StringComparison.OrdinalIgnoreCase);
+        var palette = UiThemePalette.For(theme);
         var auth = host.AzureBastion is not null ? AuthType.AzureBastion : host.AuthType;
         var (icon, label, color) = auth switch
         {
-            AuthType.Password => ("🔑", "Password", light ? "darkgoldenrod" : "yellow"),
-            AuthType.SshAgent => ("🤖", "Agent", light ? "blue" : "deepskyblue1"),
-            AuthType.CustomConfig => ("⚙", "Custom", light ? "grey35" : "grey"),
-            AuthType.AzureBastion => ("☁", "Azure Bastion", light ? "teal" : "cyan"),
-            _ => ("🔐", "SSH Key", light ? "darkgreen" : "green")
+            AuthType.Password => ("🔑", "Password", palette.Warning),
+            AuthType.SshAgent => ("🤖", "Agent", palette.Accent),
+            AuthType.CustomConfig => ("⚙", "Custom", palette.Muted),
+            AuthType.AzureBastion => ("☁", "Azure Bastion", palette.Accent),
+            _ => ("🔐", "SSH Key", palette.Success)
         };
         return $"[{color}]{icon} [[{label}]][/]";
     }
 
     public static string Alias(ServerHost host, string theme = "Dark")
-        => (host.IsFavorite ? $"[{(theme == "Light" ? "darkgoldenrod" : "yellow")}]★[/] " : "") + $"[bold]{Markup.Escape(host.Alias)}[/]";
+        => (host.IsFavorite ? $"[{UiThemePalette.For(theme).Warning}]★[/] " : "") + $"[bold]{Markup.Escape(host.Alias)}[/]";
 
-    public static string ReachabilityBadge(HostReachability status) => status.State switch
+    public static string ReachabilityBadge(HostReachability status, string theme = "Dark")
     {
-        HostReachabilityState.Online => "[green]● online[/]",
-        HostReachabilityState.Offline => "[red]○ offline[/]",
-        HostReachabilityState.Stale => "[yellow]? stale[/]",
-        HostReachabilityState.Checking => "[grey]… checking[/]",
-        HostReachabilityState.ViaBastion => "[cyan]☁ via Bastion[/]",
-        HostReachabilityState.ViaJumpHost => "[cyan]↗ via jump[/]",
-        _ => "[grey]? unchecked[/]"
-    };
+        var palette = UiThemePalette.For(theme);
+        return status.State switch
+        {
+            HostReachabilityState.Online => $"[{palette.Success}]● online[/]",
+            HostReachabilityState.Offline => $"[{palette.Error}]○ offline[/]",
+            HostReachabilityState.Stale => $"[{palette.Warning}]◌ expired[/]",
+            HostReachabilityState.Checking => $"[{palette.Accent}]… checking[/]",
+            HostReachabilityState.ViaBastion => $"[{palette.Accent}]☁ via Bastion[/]",
+            HostReachabilityState.ViaJumpHost => $"[{palette.Accent}]↗ via jump[/]",
+            _ => $"[{palette.Muted}]— unknown[/]"
+        };
+    }
 
     public static int ContainerCount(ServerHost host)
         => host.SavedContainers.Concat(host.DockerInfo?.Containers ?? [])
             .Select(c => !string.IsNullOrWhiteSpace(c.ContainerId) ? c.ContainerId : c.Name)
             .Distinct(StringComparer.Ordinal).Count();
 
-    public static string DockerBadge(ServerHost host)
+    public static string DockerBadge(ServerHost host, string theme = "Dark")
     {
+        var palette = UiThemePalette.For(theme);
         var count = ContainerCount(host);
-        if (count > 0) return $"[cyan][[D:{count}]][/]";
-        return host.DockerInfo?.DockerAvailable == true ? "[cyan][[D:0]][/]" : "[grey]—[/]";
+        if (count > 0) return $"[{palette.Accent}][[D:{count}]][/]";
+        return host.DockerInfo?.DockerAvailable == true ? $"[{palette.Accent}][[D:0]][/]" : $"[{palette.Muted}]—[/]";
     }
 
     public static string RelativeTime(DateTimeOffset? timestamp, DateTimeOffset now)

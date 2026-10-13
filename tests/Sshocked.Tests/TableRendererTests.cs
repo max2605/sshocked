@@ -33,7 +33,7 @@ public sealed class TableRendererTests
         Assert.Contains("★", text);
         Assert.Contains("D:1", text);
         Assert.Contains("2m ago", text);
-        Assert.Equal(0, reachability.Scheduled);
+        Assert.Equal(1, reachability.Scheduled);
     }
 
     [Fact]
@@ -49,5 +49,16 @@ public sealed class TableRendererTests
         Assert.DoesNotContain("hidden-container", output.ToString());
         Assert.DoesNotContain("Last connected", output.ToString());
         Assert.DoesNotContain("Status", output.ToString());
+    }
+
+    [Fact]
+    public void ExplicitlyDisabledChecksRenderCachedStatusWithoutSchedulingNetworkWork()
+    {
+        var host = new ServerHost { Alias = "offline checks", HostName = "host", User = "user" };
+        var config = new AppConfig { UI = new() { EnableReachabilityChecks = false } };
+        var reachability = new TableRendererTestsFakeReachability();
+        var renderer = new TableRendererService(reachability, new TableRendererTestsMemoryRepository(config));
+        renderer.BuildTable("group", [host], config);
+        Assert.Equal(0, reachability.Scheduled);
     }
 }

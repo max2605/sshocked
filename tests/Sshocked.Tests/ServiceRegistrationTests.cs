@@ -31,6 +31,12 @@ public sealed class ServiceRegistrationTests
             Assert.NotNull(provider.GetRequiredService<IGroupSessionService>());
             Assert.NotNull(provider.GetRequiredService<IContainerMenuService>());
             Assert.NotNull(provider.GetRequiredService<IServerFormService>());
+            Assert.NotNull(provider.GetRequiredService<IPathInputService>());
+            Assert.NotNull(provider.GetRequiredService<ILocalCredentialService>());
+            Assert.NotNull(provider.GetRequiredService<IActivityMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IMacroService>());
+            Assert.NotNull(provider.GetRequiredService<IManagedCommandSessionService>());
+            Assert.NotNull(provider.GetRequiredService<ITagMenuService>());
         }
         finally
         {

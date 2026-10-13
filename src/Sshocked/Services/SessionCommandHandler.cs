@@ -56,7 +56,7 @@ public sealed class SessionCommandHandler(SessionRepository repository, IConfigR
                     var options = new CommandOptions(remaining, [SessionCommandNames.OutputOption, SessionCommandNames.FormatOption]);
                     var id = SingleId(options);
                     var format = options.Get(SessionCommandNames.FormatOption, SessionRecordingFiles.CastFormat)!.ToLowerInvariant();
-                    var output = options.Get(SessionCommandNames.OutputOption, Path.Combine(Environment.CurrentDirectory, $"{id}.{(format == SessionRecordingFiles.TextFormat ? "txt" : SessionRecordingFiles.CastFormat)}"))!;
+                    var output = PathInputEditor.Normalize(options.Get(SessionCommandNames.OutputOption, Path.Combine(Environment.CurrentDirectory, $"{id}.{(format == SessionRecordingFiles.TextFormat ? "txt" : SessionRecordingFiles.CastFormat)}"))!);
                     System.Console.WriteLine(repository.Export(id, output, format));
                     break;
                 }

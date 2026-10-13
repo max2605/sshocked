@@ -44,7 +44,7 @@ public sealed class TerminalLauncherService(ILogger<TerminalLauncherService> log
             var candidates = new[] { ("x-terminal-emulator", new[] { "-e" }), ("gnome-terminal", new[] { "--" }),
                 ("konsole", new[] { "--new-tab", "-e" }), ("xterm", new[] { "-e" }) };
             var selected = candidates.FirstOrDefault(c => IsOnPath(c.Item1));
-            if (selected.Item1 is null) throw new InvalidOperationException("No supported terminal found. Select sequential connections in Settings.");
+            if (selected.Item1 is null) throw new InvalidOperationException("No supported terminal found. Install x-terminal-emulator, gnome-terminal, konsole or xterm, or use Connect for one server.");
             info.FileName = selected.Item1;
             tokens.AddRange(selected.Item2); tokens.Add(executable); tokens.AddRange(arguments);
         }

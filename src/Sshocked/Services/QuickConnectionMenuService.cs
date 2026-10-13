@@ -6,7 +6,8 @@ namespace Sshocked.Services;
 
 public sealed class QuickConnectionMenuService(IGroupManagementService groups, IContainerService containers,
     IHostSelectorService hostSelector, IConsoleHelperService console, IMenuFactory menu,
-    IGroupSessionService sessions, IContainerMenuService containerMenu) : IQuickConnectionMenuService
+    IGroupSessionService sessions, IContainerMenuService containerMenu,
+    IManagedCommandSessionService commandSessions) : IQuickConnectionMenuService
 {
     public async Task ConnectServer(AppConfig config)
     {
@@ -48,7 +49,7 @@ public sealed class QuickConnectionMenuService(IGroupManagementService groups, I
 
     public async Task ConnectGroup(AppConfig config)
     {
-        var group = SelectGroup("Select a [green]group[/] to connect ([grey]clear search for Back[/]):");
+        var group = await SelectGroup("[bold yellow]Connect Group[/]");
         if (group is null) return;
         var hosts = config.Hosts.Where(host => host.GroupId == group.Id).ToList();
         var savedContainers = containers.GetSavedByGroup(config, group.Id);
@@ -63,7 +64,24 @@ public sealed class QuickConnectionMenuService(IGroupManagementService groups, I
 
     public async Task RunGroupCommand(AppConfig config)
     {
-        var group = SelectGroup("Select a [green]group[/] ([grey]clear search for Back[/]):");
+        var entries = new List<MenuEntry>
+        {
+            new("Single server / record macro", 'S', executeAsync: () => RunServerCommand(config)),
+            new("Server / container group", 'G', executeAsync: () => RunForGroup(config)),
+            new("Back", 'B', actionType: MenuActionType.Back)
+        };
+        await menu.RunMenu("[bold yellow]Run command on...[/]", entries);
+    }
+
+    private Task RunServerCommand(AppConfig config)
+    {
+        var host = hostSelector.SelectHost(config.Hosts, "Select a [green]server[/] for commands");
+        return host is null ? Task.CompletedTask : commandSessions.Show(host);
+    }
+
+    private async Task RunForGroup(AppConfig config)
+    {
+        var group = await SelectGroup("[bold yellow]Select Group[/]");
         if (group is null) return;
         var hosts = config.Hosts.Where(host => host.GroupId == group.Id).ToList();
         var savedContainers = containers.GetSavedByGroup(config, group.Id);
@@ -96,7 +114,7 @@ public sealed class QuickConnectionMenuService(IGroupManagementService groups, I
         else await sessions.RunContainerCommands(config, savedContainers);
     }
 
-    private ServerGroup? SelectGroup(string title)
+    private async Task<ServerGroup?> SelectGroup(string title)
     {
         var available = groups.GetAll();
         if (available.Count == 0)
@@ -105,10 +123,15 @@ public sealed class QuickConnectionMenuService(IGroupManagementService groups, I
             console.WaitForKey();
             return null;
         }
-        var selectedName = AnsiConsole.Prompt(new SelectionPrompt<string>().Title(title)
-            .PageSize(10).EnableSearch().UseConverter(Markup.Escape)
-            .AddChoices(available.Select(group => group.Name).Append(MenuLabels.Back)));
-        return selectedName == MenuLabels.Back ? null : available.First(group => group.Name == selectedName);
+        ServerGroup? selected = null;
+        var entries = available.OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new MenuEntry(Markup.Escape(group.Name), executeAsync: () =>
+            {
+                selected = group;
+                return Task.CompletedTask;
+            })).ToList();
+        entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
+        return await menu.RunMenu(title, entries) ? selected : null;
     }
 
     private bool HasTargets(ServerGroup group, List<ServerHost> hosts, List<ContainerModel> savedContainers)

@@ -14,6 +14,8 @@ public sealed class GroupManagementService(IConfigRepository configRepository, I
 
     public ServerGroup Create(string name)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        name = name.Trim();
         var group = new ServerGroup
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -28,6 +30,8 @@ public sealed class GroupManagementService(IConfigRepository configRepository, I
 
     public void Rename(string groupId, string newName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        newName = newName.Trim();
         var renamed = false;
         configRepository.Update(config =>
         {
@@ -53,6 +57,7 @@ public sealed class GroupManagementService(IConfigRepository configRepository, I
             if (group is null) return;
             name = group.Name;
             config.Groups.Remove(group);
+            // Groups own membership only; deleting them must preserve reusable targets and their history.
             foreach (var host in config.Hosts.Where(h => h.GroupId == groupId)) host.GroupId = string.Empty;
             foreach (var container in config.Hosts.SelectMany(h => h.SavedContainers).Where(c => c.GroupId == groupId))
                 container.GroupId = string.Empty;

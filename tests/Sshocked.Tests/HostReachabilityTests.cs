@@ -40,6 +40,33 @@ public sealed class HostReachabilityTests
     }
 
     [Fact]
-    public void ReachabilityChecksAreDisabledByDefault()
-        => Assert.False(new UISettings().EnableReachabilityChecks);
+    public void ReachabilityChecksAreEnabledByDefaultAndCanBeDisabled()
+    {
+        Assert.True(new UISettings().EnableReachabilityChecks);
+        Assert.False(new UISettings { EnableReachabilityChecks = false }.EnableReachabilityChecks);
+    }
+
+    [Fact]
+    public async Task ExpiredResultShowsCheckingWhenAutomaticRefreshStarts()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var host = new ServerHost { Id = "refresh", HostName = "127.0.0.1", Port = ((IPEndPoint)listener.LocalEndpoint).Port };
+        var clock = new HostReachabilityTestsClock();
+        using var service = new HostReachabilityService(clock);
+        await service.CheckPortOpen(host);
+        clock.Now = clock.Now.AddMinutes(6);
+        Assert.Equal(HostReachabilityState.Checking, service.GetStatus(host, scheduleCheck: true).State);
+    }
+
+    [Theory]
+    [InlineData("", 22)]
+    [InlineData("localhost", 0)]
+    [InlineData("localhost", 65536)]
+    public void InvalidEndpointsRemainUnknownWithoutScheduling(string name, int port)
+    {
+        using var service = new HostReachabilityService();
+        Assert.Equal(HostReachabilityState.Unchecked,
+            service.GetStatus(new() { HostName = name, Port = port }, scheduleCheck: true).State);
+    }
 }

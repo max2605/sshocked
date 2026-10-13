@@ -9,18 +9,15 @@ public sealed class GroupSessionService(IGroupConnectionService groupConnection,
 {
     public async Task ConnectServers(AppConfig config, List<ServerHost> hosts)
     {
-        var parallel = config.DefaultConnectionStrategy == ConnectionStrategy.MultiTab;
-        AnsiConsole.MarkupLine($"[green]Connecting {hosts.Count} server(s) using {(parallel ? "multi-tab" : "sequential")}...[/]");
-        if (parallel) await groupConnection.ConnectAllMultiTab(hosts);
-        else await groupConnection.ConnectAllSequential(hosts);
+        // Legacy sequential values remain readable, but batch connections always open independent terminals.
+        AnsiConsole.MarkupLine($"[green]Connecting {hosts.Count} server(s) using multi-tab...[/]");
+        await groupConnection.ConnectAllMultiTab(hosts);
     }
 
     public async Task ConnectContainers(AppConfig config, List<ContainerModel> containers)
     {
-        var parallel = config.DefaultConnectionStrategy == ConnectionStrategy.MultiTab;
-        AnsiConsole.MarkupLine($"[green]Exec'ing {containers.Count} container(s) using {(parallel ? "multi-tab" : "sequential")}...[/]");
-        if (parallel) await containerGroups.ExecAllMultiTab(config, containers);
-        else await containerGroups.ExecAllSequential(config, containers);
+        AnsiConsole.MarkupLine($"[green]Exec'ing {containers.Count} container(s) using multi-tab...[/]");
+        await containerGroups.ExecAllMultiTab(config, containers);
     }
 
     public Task RunServerCommands(List<ServerHost> hosts) => RunCommands("servers", command => RunOnServers(hosts, command));
@@ -52,9 +49,14 @@ public sealed class GroupSessionService(IGroupConnectionService groupConnection,
             console.WriteLine(new string('-', Math.Max(1, 60 - header.Length)));
             try
             {
-                var output = await process.RunSshCommand(host, command);
-                console.Write(output);
-                if (!output.EndsWith('\n')) console.WriteLine(string.Empty);
+                var endedWithNewline = true;
+                var result = await process.RunSshCommandStreaming(host, command, output =>
+                {
+                    console.Write(output);
+                    endedWithNewline = output.EndsWith('\n');
+                });
+                if (!endedWithNewline) console.WriteLine(string.Empty);
+                result.EnsureSuccess("Remote SSH command");
             }
             catch (Exception error)
             {

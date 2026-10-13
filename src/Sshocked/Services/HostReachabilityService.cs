@@ -5,7 +5,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-/// <summary>Optional TCP reachability only; an open port does not imply a successful SSH login.</summary>
+/// <summary>TCP reachability only; an open port does not imply a successful SSH login.</summary>
 public sealed class HostReachabilityService(TimeProvider? timeProvider = null) : IHostReachabilityService, IDisposable
 {
     private readonly ConcurrentDictionary<string, HostReachabilityServiceEntry> _cache = new(StringComparer.Ordinal);
@@ -18,6 +18,7 @@ public sealed class HostReachabilityService(TimeProvider? timeProvider = null) :
     public HostReachability GetStatus(ServerHost host, bool scheduleCheck = false)
     {
         if (Route(host) is { } route) return route;
+        if (!IsValidEndpoint(host)) return new(HostReachabilityState.Unchecked);
         var entry = _cache.GetOrAdd(Key(host), _ => new());
         lock (entry.Gate)
         {
@@ -35,9 +36,10 @@ public sealed class HostReachabilityService(TimeProvider? timeProvider = null) :
                     finally { lock (entry.Gate) entry.Checking = false; }
                 });
             }
-            var state = fresh ? (entry.Reachable == true ? HostReachabilityState.Online : HostReachabilityState.Offline)
+            var state = entry.Checking ? HostReachabilityState.Checking
+                : fresh ? (entry.Reachable == true ? HostReachabilityState.Online : HostReachabilityState.Offline)
                 : entry.LastChecked is not null ? HostReachabilityState.Stale
-                : entry.Checking ? HostReachabilityState.Checking : HostReachabilityState.Unchecked;
+                : HostReachabilityState.Unchecked;
             return new(state, entry.LastChecked, entry.Reachable);
         }
     }
@@ -45,7 +47,7 @@ public sealed class HostReachabilityService(TimeProvider? timeProvider = null) :
     public async Task<HostReachability> CheckPortOpen(ServerHost host, int timeoutMs = 1000, CancellationToken ct = default)
     {
         if (Route(host) is { } route) return route;
-        if (host.Port is < 1 or > 65535 || string.IsNullOrWhiteSpace(host.HostName)) return new(HostReachabilityState.Unchecked);
+        if (!IsValidEndpoint(host)) return new(HostReachabilityState.Unchecked);
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _concurrency.WaitAsync(ct);
         var reachable = false;
@@ -67,6 +69,7 @@ public sealed class HostReachabilityService(TimeProvider? timeProvider = null) :
     }
 
     private static string Key(ServerHost host) => host.Id + "\0" + host.HostName + "\0" + host.Port;
+    private static bool IsValidEndpoint(ServerHost host) => host.Port is >= 1 and <= 65535 && !string.IsNullOrWhiteSpace(host.HostName);
     private static HostReachability? Route(ServerHost host)
         => host.AzureBastion is not null || host.AuthType == AuthType.AzureBastion ? new(HostReachabilityState.ViaBastion)
             : !string.IsNullOrWhiteSpace(host.ProxyJump) && !host.ProxyJump.Equals("none", StringComparison.OrdinalIgnoreCase)
