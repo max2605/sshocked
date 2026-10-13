@@ -5,7 +5,8 @@ namespace Sshocked.Services;
 
 public sealed class MacroService(IConfigRepository repository, IProcessService process, IAuditService audit) : IMacroService
 {
-    public IReadOnlyList<MacroDefinition> List() => repository.Load().Macros.OrderBy(macro => macro.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    public IReadOnlyList<MacroDefinition> List() => repository.Load().Macros.OrderBy(macro => macro.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(macro => macro.Copy()).ToList();
 
     public MacroDefinition Find(string nameOrId)
     {
@@ -16,19 +17,58 @@ public sealed class MacroService(IConfigRepository repository, IProcessService p
 
     public MacroDefinition Save(MacroRecording recording, string name)
     {
-        name = name.Trim();
-        if (name.Length is < 1 or > 80 || name.Any(char.IsControl)) throw new ArgumentException("Use a macro name of 1 to 80 characters.");
         if (recording.IsRecording) throw new InvalidOperationException("Stop recording before saving the macro.");
-        var macro = new MacroDefinition { Name = name, Commands = recording.Commands.ToList(), RecordedOnHostId = recording.Host.Id };
+        return CreateCore(name, recording.Commands, recording.Host.Id, MacroEventNames.Saved, recording.Host.Alias);
+    }
+
+    public MacroDefinition Create(string name, IReadOnlyList<string> commands) =>
+        CreateCore(name, commands, null, MacroEventNames.Created);
+
+    public MacroDefinition Duplicate(MacroDefinition original, string name, IReadOnlyList<string> commands) =>
+        CreateCore(name, commands, original.RecordedOnHostId, MacroEventNames.Duplicated);
+
+    public MacroDefinition Update(MacroDefinition original, string name, IReadOnlyList<string> commands)
+    {
+        var expected = original.Copy();
+        var macro = expected.Copy();
+        macro.Name = MacroCommandPolicy.NormalizeName(name);
+        macro.Commands = commands.ToList();
         _ = MacroScriptBuilder.Build(macro);
         repository.Update(config =>
         {
-            if (config.Macros.Any(existing => existing.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                throw new ArgumentException("A macro with that name already exists. Choose another name.");
-            config.Macros.Add(macro);
+            var index = config.Macros.FindIndex(existing => existing.Id == expected.Id);
+            if (index < 0 || !config.Macros[index].Matches(expected))
+                throw new InvalidOperationException("This macro was changed or deleted elsewhere. Your draft was not saved. Discard it and reopen the macro to load the current version.");
+            RequireUniqueName(config.Macros, macro.Name, expected.Id);
+            config.Macros[index] = macro.Copy();
         });
-        audit.Record(new() { Category = "config", EventType = "macro.saved", HostId = recording.Host.Id, Alias = recording.Host.Alias, Action = macro.Name });
+        audit.Record(new() { Category = "config", EventType = MacroEventNames.Updated, HostId = macro.RecordedOnHostId, Action = macro.Name });
         return macro;
+    }
+
+    private MacroDefinition CreateCore(string name, IReadOnlyList<string> commands, string? recordedOnHostId,
+        string eventType, string? alias = null)
+    {
+        var macro = new MacroDefinition
+        {
+            Name = MacroCommandPolicy.NormalizeName(name),
+            Commands = commands.ToList(),
+            RecordedOnHostId = recordedOnHostId
+        };
+        _ = MacroScriptBuilder.Build(macro);
+        repository.Update(config =>
+        {
+            RequireUniqueName(config.Macros, macro.Name);
+            config.Macros.Add(macro.Copy());
+        });
+        audit.Record(new() { Category = "config", EventType = eventType, HostId = recordedOnHostId, Alias = alias, Action = macro.Name });
+        return macro;
+    }
+
+    private static void RequireUniqueName(IReadOnlyList<MacroDefinition> macros, string name, string? exceptId = null)
+    {
+        if (macros.Any(existing => existing.Id != exceptId && existing.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("A macro with that name already exists. Choose another name.");
     }
 
     public void Delete(string id)
@@ -37,12 +77,19 @@ public sealed class MacroService(IConfigRepository repository, IProcessService p
         {
             if (config.Macros.RemoveAll(macro => macro.Id == id) == 0) throw new ArgumentException("Macro not found.");
         });
-        audit.Record(new() { Category = "config", EventType = "macro.deleted", Action = id });
+        audit.Record(new() { Category = "config", EventType = MacroEventNames.Deleted, Action = id });
     }
 
-    public async Task<IReadOnlyList<MacroTargetResult>> Run(MacroDefinition macro, IReadOnlyList<ServerHost> targets,
-        Action<string> progress, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<MacroTargetResult>> Run(MacroDefinition macro, IReadOnlyList<ServerHost> targets,
+        Action<string> progress, CancellationToken cancellationToken = default) => RunCore(macro, targets, progress, false, cancellationToken);
+
+    public Task<IReadOnlyList<MacroTargetResult>> RunNonInteractive(MacroDefinition macro, IReadOnlyList<ServerHost> targets,
+        Action<string> progress, CancellationToken cancellationToken = default) => RunCore(macro, targets, progress, true, cancellationToken);
+
+    private async Task<IReadOnlyList<MacroTargetResult>> RunCore(MacroDefinition definition, IReadOnlyList<ServerHost> targets,
+        Action<string> progress, bool nonInteractive, CancellationToken cancellationToken)
     {
+        var macro = definition.Copy();
         var script = MacroScriptBuilder.Build(macro);
         var hosts = targets.DistinctBy(host => host.Id).ToList();
         if (hosts.Count == 0) throw new ArgumentException("Select at least one server.");
@@ -54,7 +101,10 @@ public sealed class MacroService(IConfigRepository repository, IProcessService p
             MacroTargetResult result;
             try
             {
-                var execution = await process.RunSshCommandStreaming(host, script, progress, cancellationToken);
+                foreach (var command in macro.Commands) MacroCommandPolicy.Validate(command, host);
+                var execution = await process.RunSshCommandStreamingValidated(host, script,
+                    prepared => { foreach (var command in macro.Commands) MacroCommandPolicy.Validate(command, prepared); },
+                    progress, nonInteractive, cancellationToken);
                 result = new(host.Id, host.Alias, execution.ExitCode == 0, execution.ExitCode, null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -63,7 +113,7 @@ public sealed class MacroService(IConfigRepository repository, IProcessService p
             audit.Record(new()
             {
                 Category = "command",
-                EventType = "macro.executed",
+                EventType = MacroEventNames.Executed,
                 HostId = host.Id,
                 Alias = host.Alias,
                 Action = macro.Name,

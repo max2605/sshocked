@@ -6,7 +6,7 @@ namespace Sshocked.Services;
 public static class ScpArguments
 {
     private static readonly HashSet<string> ValueOptions = ["-o", "-i", "-F", "-J", "-c", "-S"];
-    private static readonly HashSet<string> FlagOptions = ["-C", "-v", "-q", "-4", "-6"];
+    private static readonly HashSet<string> FlagOptions = ["-C", "-v", "-vv", "-vvv", "-q", "-4", "-6"];
 
     public static IReadOnlyList<string> Build(ServerHost host, string localPath, string remotePath,
         bool upload, bool recursive = false)

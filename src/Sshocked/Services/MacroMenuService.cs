@@ -5,8 +5,11 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class MacroMenuService(IMacroService macros, IManagedCommandSessionService commandSession,
-    IConfigRepository repository, IMenuFactory menus, IConsoleWriterService console, IConsoleHelperService helper) : IMacroMenuService
+    IConfigRepository repository, IMenuFactory menus, IConsoleWriterService console, IConsoleHelperService helper,
+    IMacroEditorService? editor = null, IBatchMenuService? batches = null) : IMacroMenuService
 {
+    private readonly IMacroEditorService macroEditor = editor ?? new MacroEditorService(macros, menus, console, helper);
+
     public async Task Show()
     {
         var running = true;
@@ -15,6 +18,8 @@ public sealed class MacroMenuService(IMacroService macros, IManagedCommandSessio
             var count = macros.List().Count;
             var entries = new List<MenuEntry>
             {
+                new(MacroEditorLabels.Create, 'C', executeAsync: async () => { await macroEditor.Create(); }),
+                new(MacroEditorLabels.FromTemplate, 'T', executeAsync: async () => { await macroEditor.CreateFromTemplate(); }),
                 new("Record commands on a server", 'R', executeAsync: Record),
                 new($"Browse saved macros ({count})", 'M', executeAsync: Browse),
                 new("Back", 'B', actionType: MenuActionType.Back)
@@ -25,6 +30,12 @@ public sealed class MacroMenuService(IMacroService macros, IManagedCommandSessio
 
     public async Task Run(IReadOnlyList<ServerHost> hosts)
     {
+        if (batches is not null)
+        {
+            var ids = hosts.Select(host => host.Id).ToHashSet(StringComparer.Ordinal);
+            await batches.RunMacro(() => repository.Load().Hosts.Where(host => ids.Contains(host.Id)).ToList());
+            return;
+        }
         var macro = SelectMacro();
         if (macro is not null) await RunSelected(macro, hosts);
     }
@@ -54,7 +65,10 @@ public sealed class MacroMenuService(IMacroService macros, IManagedCommandSessio
                     helper.WaitForKey(); return Task.CompletedTask;
                 }),
                 new("Run on server, group or tag", 'R', executeAsync: async () =>
-                { var hosts = SelectTargets(); if (hosts.Count > 0) await RunSelected(macro, hosts); }),
+                { if (SelectTargets() is { } targets) await RunSelected(macro, targets); }),
+                new(MacroEditorLabels.Edit, 'E', executeAsync: async () =>
+                { if (await macroEditor.Edit(macro) is { } saved) macro = saved; }),
+                new(MacroEditorLabels.Duplicate, 'C', executeAsync: async () => { await macroEditor.Duplicate(macro); }),
                 new("Delete macro", 'D', executeAsync: () =>
                 {
                     if (AnsiConsole.Confirm($"Delete macro '{Markup.Escape(macro.Name)}'?", false))
@@ -69,27 +83,37 @@ public sealed class MacroMenuService(IMacroService macros, IManagedCommandSessio
     private MacroDefinition? SelectMacro()
     {
         var items = macros.List();
-        if (items.Count == 0) { console.WriteLine("No macros saved. Start a command session and use :record, :stop, :save NAME."); helper.WaitForKey(); return null; }
+        if (items.Count == 0) { console.WriteLine("No macros saved. Create a macro, use a template, or record commands on a server."); helper.WaitForKey(); return null; }
         var chosen = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Choose a macro:")
             .UseConverter(Markup.Escape)
             .AddChoices(items.Select(macro => $"{macro.Name} ({macro.Commands.Count} commands, {macro.Id})").Append("Back")));
         return items.FirstOrDefault(macro => chosen == $"{macro.Name} ({macro.Commands.Count} commands, {macro.Id})");
     }
 
-    private IReadOnlyList<ServerHost> SelectTargets()
+    private Func<IReadOnlyList<ServerHost>>? SelectTargets()
     {
         var config = repository.Load();
-        var targets = new Dictionary<string, IReadOnlyList<ServerHost>>();
-        foreach (var host in config.Hosts) targets.Add($"Server: {host.Alias} ({host.Id})", [host]);
-        foreach (var group in config.Groups) targets.Add($"Group: {group.Name} ({group.Id})", config.Hosts.Where(host => host.GroupId == group.Id).ToList());
+        var targets = new Dictionary<string, Func<IReadOnlyList<ServerHost>>>();
+        foreach (var host in config.Hosts)
+            targets.Add($"Server: {host.Alias} ({host.Id})", () => repository.Load().Hosts.Where(current => current.Id == host.Id).ToList());
+        foreach (var group in config.Groups)
+            targets.Add($"Group: {group.Name} ({group.Id})", () => repository.Load().Hosts.Where(host => host.GroupId == group.Id).ToList());
         foreach (var tag in config.Hosts.SelectMany(host => host.Tags).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
-            targets.Add($"Tag: {tag}", config.Hosts.Where(host => host.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)).ToList());
+            targets.Add($"Tag: {tag}", () => repository.Load().Hosts.Where(host => host.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)).ToList());
         var selected = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Macro targets:").UseConverter(Markup.Escape).AddChoices(targets.Keys.Append("Back")));
-        return targets.GetValueOrDefault(selected) ?? [];
+        return targets.GetValueOrDefault(selected);
     }
 
-    private async Task RunSelected(MacroDefinition macro, IReadOnlyList<ServerHost> hosts)
+    private Task RunSelected(MacroDefinition macro, IReadOnlyList<ServerHost> hosts)
     {
+        var ids = hosts.Select(host => host.Id).ToHashSet(StringComparer.Ordinal);
+        return RunSelected(macro, () => repository.Load().Hosts.Where(host => ids.Contains(host.Id)).ToList());
+    }
+
+    private async Task RunSelected(MacroDefinition macro, Func<IReadOnlyList<ServerHost>> targets)
+    {
+        if (batches is not null) { await batches.RunMacro(targets, macro); return; }
+        var hosts = targets();
         if (hosts.Count == 0) { console.WriteLine("No servers in the selected target."); helper.WaitForKey(); return; }
         console.WriteLine($"Macro '{macro.Name}' will run {macro.Commands.Count} commands on: {string.Join(", ", hosts.Select(host => host.Alias))}.");
         if (!AnsiConsole.Confirm("Run this macro?", false)) return;

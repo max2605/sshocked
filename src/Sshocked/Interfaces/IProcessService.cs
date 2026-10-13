@@ -6,6 +6,15 @@ public interface IProcessService
 {
     Task RunSsh(ServerHost host);
     Task<string> RunSshCommand(ServerHost host, string command);
+    Task<ProcessResult> RunSshCommandResultNonInteractive(ServerHost host, string command, CancellationToken ct = default)
+        => throw new NotSupportedException("This process service does not support noninteractive batch commands.");
+    Task<ProcessResult> RunSshCommandStreamingValidated(ServerHost host, string command,
+        Action<ServerHost> validatePrepared, Action<string> output, bool nonInteractive = false, CancellationToken ct = default)
+    {
+        if (nonInteractive) throw new NotSupportedException("This process service does not support validated noninteractive commands.");
+        validatePrepared(host);
+        return RunSshCommandStreaming(host, command, output, ct);
+    }
     async Task<ProcessResult> RunSshCommandStreaming(ServerHost host, string command, Action<string> output, CancellationToken ct = default)
     {
         var result = await RunSshCommandResult(host, command, ct);
@@ -30,4 +39,6 @@ public interface IProcessService
         throw new NotSupportedException("This process service does not expose prepared SSH connections.");
     Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default) =>
         throw new NotSupportedException("This process service does not support protected standard input.");
+    Task<ProcessResult> RunSshCommandWithInputNonInteractive(ServerHost host, string command, string input, CancellationToken ct = default) =>
+        throw new NotSupportedException("This process service does not support bounded noninteractive protected standard input.");
 }

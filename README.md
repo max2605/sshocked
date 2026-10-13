@@ -27,6 +27,13 @@ A .NET console application that provides a fast, interactive terminal UI for man
 - **Reusable command macros** — Record commands in a persistent SSH shell and replay them on servers, groups or tag matches
 - **Activity and recording** — One menu and CLI for structured events, timed output and playback
 - **Local passwords** — User-scoped Windows DPAPI storage, editable per server with askpass authentication
+- **Monitoring** — Bounded SSH probes for server health, load, updates, processes, services, logs and Docker containers; snapshots, delayed alarms and local history
+- **Fleet operations** — Saved target views, confirmed command/macro/transfer batches, bounded concurrency, per-target reports and explicit retries
+- **SSH forwarding** — Saved local, remote and dynamic forwarding profiles with managed lifetimes and readiness checks
+- **Configuration backup and diagnostics** — Portable redacted exports, previewed restore with private local recovery, and redacted diagnostic reports
+- **Macro editor and command palette** — Create and edit commands without recording; search actions and targets with Ctrl+P
+
+The [open issue implementation guide](docs/OPEN_ISSUE_IMPLEMENTATION.md) maps the changes to their issues. New guides cover [monitoring](docs/MONITORING.md), [processes/services](docs/PROCESS_MONITORING.md), [logs](docs/MONITORING_LOGS.md), [containers](docs/CONTAINERS.md), [container monitoring](docs/MONITORING_CONTAINERS.md), [fleet operations](docs/FLEET_OPERATIONS.md), [forwarding](docs/PORT_FORWARDING.md), [macros](docs/MACROS.md), [configuration backup](docs/CONFIGURATION_BACKUP.md), and [diagnostics](docs/DIAGNOSTICS.md).
 
 See [the implementation guide](docs/ISSUE_IMPLEMENTATION.md) for the new menus, CLI examples, validation, and platform limitations. Detailed guides cover [SSH keys/config sync](docs/FEATURES.md), [hooks](docs/CONNECTION_HOOKS.md), [recordings](docs/SESSION_RECORDING.md), and [display settings](docs/VISUALS.md).
 

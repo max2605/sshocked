@@ -6,7 +6,7 @@ The `Max_Codex` branch implements the following open feature requests. Each feat
 | --- | --- |
 | #27, #39 | Azure Bastion native SSH and managed loopback tunnels; AAD/key/password configuration; per-child tunnel lifetime and cleanup |
 | #28 | SCP upload, quick upload, download, Unix remote browser, recursive transfer, and group transfers with independent outcomes |
-| #30 | Authentication/status badges, favorites, recent timestamps, container counts, themes, compact tables, breadcrumbs, and footer |
+| #30 | Authentication/status badges, favorites, recent timestamps, container counts, compact tables, breadcrumbs, and footer; a single dark palette after #67 |
 | #31 | Discovered SSH identity selection with public fingerprint/comment and agent status |
 | #32 | Persistent host/container favorites and bounded recent history with connection counts |
 | #33 | Structured audit events, privacy controls, retention, and filtered table/JSON/JSONL/CSV history |

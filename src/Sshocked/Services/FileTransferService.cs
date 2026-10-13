@@ -11,26 +11,37 @@ public sealed class FileTransferService(IProcessService processService, IExterna
     IAuditService auditService, ILogger<FileTransferService> logger) : IFileTransferService
 {
     public Task<int> UploadFile(ServerHost host, string localPath, string remotePath, bool recursive = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => Upload(host, localPath, remotePath, recursive, cancellationToken, false);
+
+    public Task<int> DownloadFile(ServerHost host, string remotePath, string localPath, bool recursive = false,
+        CancellationToken cancellationToken = default) => Download(host, remotePath, localPath, recursive, cancellationToken, false);
+
+    public Task<int> UploadFileNonInteractive(ServerHost host, string localPath, string remotePath,
+        bool recursive = false, CancellationToken cancellationToken = default) => Upload(host, localPath, remotePath, recursive, cancellationToken, true);
+
+    private Task<int> Upload(ServerHost host, string localPath, string remotePath, bool recursive,
+        CancellationToken cancellationToken, bool nonInteractive)
     {
         localPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(localPath));
         if (!File.Exists(localPath) && !(recursive && Directory.Exists(localPath)))
             throw new FileNotFoundException("The local file does not exist, or copying its directory needs recursive mode.", localPath);
-        return Transfer(host, localPath, remotePath, true, recursive, cancellationToken);
+        return Transfer(host, localPath, remotePath, true, recursive, cancellationToken, nonInteractive);
     }
 
-    public Task<int> DownloadFile(ServerHost host, string remotePath, string localPath, bool recursive = false,
-        CancellationToken cancellationToken = default)
+    public Task<int> DownloadFileNonInteractive(ServerHost host, string remotePath, string localPath,
+        bool recursive = false, CancellationToken cancellationToken = default) => Download(host, remotePath, localPath, recursive, cancellationToken, true);
+
+    private Task<int> Download(ServerHost host, string remotePath, string localPath, bool recursive,
+        CancellationToken cancellationToken, bool nonInteractive)
     {
         localPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(localPath));
-        var parent = Path.GetDirectoryName(localPath);
-        if (parent is not null && !Directory.Exists(parent))
+        if (Path.GetDirectoryName(localPath) is { } parent && !Directory.Exists(parent))
             throw new DirectoryNotFoundException($"Local destination directory does not exist: {parent}");
-        return Transfer(host, localPath, remotePath, false, recursive, cancellationToken);
+        return Transfer(host, localPath, remotePath, false, recursive, cancellationToken, nonInteractive);
     }
 
     private async Task<int> Transfer(ServerHost host, string localPath, string remotePath, bool upload,
-        bool recursive, CancellationToken cancellationToken)
+        bool recursive, CancellationToken cancellationToken, bool nonInteractive = false)
     {
         var stopwatch = Stopwatch.StartNew();
         int? exitCode = null;
@@ -38,12 +49,20 @@ public sealed class FileTransferService(IProcessService processService, IExterna
         {
             await using var lease = await processService.PrepareConnection(host, cancellationToken);
             var startInfo = new ProcessStartInfo("scp") { UseShellExecute = false };
+            if (nonInteractive)
+            {
+                NonInteractiveSshOptions.Apply(startInfo, lease.Host);
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+                startInfo.CreateNoWindow = true;
+            }
             foreach (var argument in ScpArguments.Build(lease.Host, localPath, remotePath, upload, recursive))
                 startInfo.ArgumentList.Add(argument);
             foreach (var variable in lease.Environment)
                 startInfo.Environment[variable.Key] = variable.Value;
-            // Inherit the terminal for SCP progress, host-key confirmation and password/agent prompts.
-            var result = await processRunner.Run(startInfo, cancellationToken);
+            var result = nonInteractive
+                ? await processRunner.RunBounded(startInfo, 1048576, cancellationToken: cancellationToken)
+                : await processRunner.Run(startInfo, cancellationToken);
             exitCode = result.ExitCode;
             logger.LogInformation("SCP {Direction} for {Alias} finished with exit code {ExitCode}",
                 upload ? "upload" : "download", host.Alias, exitCode);

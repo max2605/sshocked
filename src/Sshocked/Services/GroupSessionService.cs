@@ -5,7 +5,8 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class GroupSessionService(IGroupConnectionService groupConnection,
-    IContainerGroupService containerGroups, IProcessService process, IConsoleWriterService console) : IGroupSessionService
+    IContainerGroupService containerGroups, IProcessService process, IConsoleWriterService console,
+    IBatchMenuService? batches = null, IConfigRepository? repository = null) : IGroupSessionService
 {
     public async Task ConnectServers(AppConfig config, List<ServerHost> hosts)
     {
@@ -20,7 +21,12 @@ public sealed class GroupSessionService(IGroupConnectionService groupConnection,
         await containerGroups.ExecAllMultiTab(config, containers);
     }
 
-    public Task RunServerCommands(List<ServerHost> hosts) => RunCommands("servers", command => RunOnServers(hosts, command));
+    public Task RunServerCommands(List<ServerHost> hosts)
+    {
+        if (batches is null) return RunCommands("servers", command => RunOnServers(hosts, command));
+        var ids = hosts.Select(host => host.Id).ToHashSet(StringComparer.Ordinal);
+        return batches.RunCommand(() => repository is null ? hosts : repository.Load().Hosts.Where(host => ids.Contains(host.Id)).ToList());
+    }
 
     public Task RunContainerCommands(AppConfig config, List<ContainerModel> containers) =>
         RunCommands("containers", command => containerGroups.RunCommandOnAll(config, containers, command));

@@ -10,7 +10,11 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
     ITableRendererService tableRenderer, IConsoleHelperService console, IMenuFactory menu,
     IQuickAccessMenuService quickAccess, ISshConfigSyncMenuService sshConfigSyncMenu,
     IQuickConnectionMenuService connections, ISettingsMenuService settings,
-    IUiChromeService chrome, ILogger<MainMenuService> logger, ITagMenuService tags, IMacroMenuService macros) : IMainMenuService
+    IUiChromeService chrome, ILogger<MainMenuService> logger, ITagMenuService tags, IMacroMenuService macros,
+    IMonitoringMenuService? monitoring = null, IContainerMenuService? containers = null,
+    ITargetViewMenuService? views = null, IBatchMenuService? batches = null,
+    CommandPaletteCatalog? paletteCatalog = null, IConfigBackupMenuService? backups = null,
+    IDiagnosticMenuService? diagnostics = null, IPortForwardingMenuService? forwarding = null) : IMainMenuService
 {
     public async Task Show()
     {
@@ -27,9 +31,9 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
             {
                 new("Favorites", 'F', executeAsync: quickAccess.ShowFavorites),
                 new("Recent connections", 'H', executeAsync: quickAccess.ShowRecent),
-                new("Quick Connect", 'C', executeAsync: () => connections.ConnectServer(config)),
-                new("Connect Group", 'G', executeAsync: () => connections.ConnectGroup(config)),
-                new("Run command", 'X', executeAsync: () => connections.RunGroupCommand(config)),
+                new("Quick Connect", 'C', executeAsync: () => connections.ConnectServer(repository.Load())),
+                new("Connect Group", 'G', executeAsync: () => connections.ConnectGroup(repository.Load())),
+                new("Run command", 'X', executeAsync: () => connections.RunGroupCommand(repository.Load())),
                 new("Macros", 'M', executeAsync: macros.Show),
                 new("SSH Config Sync", 'Y', executeAsync: sshConfigSyncMenu.Show),
                 new("Manage Servers", 'S', executeAsync: ShowServersMenu),
@@ -37,6 +41,16 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
                 new("Settings", 'T', executeAsync: settings.Show),
                 new("Exit", 'E', actionType: MenuActionType.Exit)
             };
+            var additions = new List<MenuEntry>();
+            if (monitoring is not null) additions.Add(new("Monitoring", 'O', executeAsync: monitoring.Show));
+            if (containers is not null) additions.Add(new("Container management", 'D', executeAsync: containers.Manage));
+            if (views is not null) additions.Add(new("Target views", 'V', executeAsync: views.Show));
+            if (batches is not null) additions.Add(new("Batch operations", 'P', executeAsync: batches.Show));
+            if (backups is not null) additions.Add(new("Configuration backup / restore", 'K', executeAsync: backups.Show));
+            if (diagnostics is not null) additions.Add(new("Diagnostic bundle", 'I', executeAsync: diagnostics.Show));
+            if (forwarding is not null) additions.Add(new("Port forwarding", 'L', executeAsync: forwarding.Show));
+            entries.InsertRange(entries.Count - 1, additions);
+            paletteCatalog?.Register(() => PaletteEntries(entries));
             running = await menu.RunMenu("[bold yellow]Main Menu[/]", entries,
                 () => RenderMain(repository.Load()));
         }
@@ -80,6 +94,18 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         AnsiConsole.Clear();
         chrome.RenderBreadcrumb(breadcrumbs.Length > 0 ? breadcrumbs : ["Main"]);
         tableRenderer.RenderServerTable(config);
+    }
+
+    private IReadOnlyList<MenuEntry> PaletteEntries(List<MenuEntry> mainActions)
+    {
+        var config = repository.Load();
+        var result = mainActions.Where(entry => entry.ActionType == MenuActionType.Execute).ToList();
+        result.AddRange(config.Hosts.Select(host => new MenuEntry("Server: " + Spectre.Console.Markup.Escape(MonitoringDisplay.Literal(host.Alias + " " + host.HostName)),
+            executeAsync: () => serverMenu.ShowServerActions(repository.Load().Hosts.First(item => item.Id == host.Id)))));
+        result.AddRange(config.Groups.Select(group => new MenuEntry("Group: " + Markup.Escape(MonitoringDisplay.Literal(group.Name)), executeAsync: () => groupMenu.ShowGroup(group.Id))));
+        result.AddRange(config.Hosts.SelectMany(host => host.Tags.Concat(host.SavedContainers.SelectMany(container => container.Tags)))
+            .Distinct(StringComparer.OrdinalIgnoreCase).Select(tag => new MenuEntry("Tag: " + Markup.Escape(MonitoringDisplay.Literal(tag)), executeAsync: () => tags.ShowTag(tag))));
+        return result;
     }
 
     private void AddServer()

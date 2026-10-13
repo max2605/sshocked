@@ -7,6 +7,9 @@ public interface IExternalProcessRunner
 {
     Process Start(ProcessStartInfo startInfo);
     Task<ProcessResult> Run(ProcessStartInfo startInfo, CancellationToken cancellationToken = default);
+    Task<ProcessResult> RunBounded(ProcessStartInfo startInfo, int maximumOutputBytes,
+        string? input = null, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This runner does not support bounded noninteractive capture.");
     async Task<ProcessResult> RunStreaming(ProcessStartInfo startInfo, Action<string> output, CancellationToken cancellationToken = default)
     {
         var result = await Run(startInfo, cancellationToken);

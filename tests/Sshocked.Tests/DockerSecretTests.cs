@@ -89,7 +89,7 @@ public sealed class DockerSecretTests
         var service = new ContainerGroupService(process, new DockerSecretTestsTerminals(), new DockerSecretTestsConsoleHelper(), new DockerSecretTestsSecrets(), NullLogger<ContainerGroupService>.Instance);
         await service.RunCommandOnAll(config, [container], "id");
         Assert.Equal(Password + "\n", Assert.Single(process.Inputs));
-        Assert.Equal("sudo -S -p '' docker exec -- 'name'\\''; touch sentinel; #' id", Assert.Single(process.Commands));
+        Assert.Equal("sudo -S -p '' docker exec -- 'name'\\''; touch sentinel; #' sh -lc 'id'", Assert.Single(process.Commands));
         Assert.DoesNotContain(Password, process.Commands[0]);
     }
 
@@ -137,6 +137,17 @@ public sealed class DockerSecretTests
             Assert.True(result.DockerAvailable);
             Assert.Equal(3, runner.Inputs.Count);
             Assert.All(runner.Inputs, input => Assert.Equal(password + "\n", input));
+            Assert.Equal(3, runner.OutputLimits.Count);
+            Assert.All(runner.OutputLimits, limit => Assert.Equal(16_777_216, limit));
+            Assert.All(runner.StartInfos, info =>
+            {
+                Assert.Contains("StrictHostKeyChecking=yes", info.ArgumentList);
+                Assert.Contains("RequestTTY=no", info.ArgumentList);
+                Assert.Contains("ClearAllForwardings=yes", info.ArgumentList);
+                Assert.Contains("PermitLocalCommand=no", info.ArgumentList);
+                Assert.Contains("BatchMode=yes", info.ArgumentList);
+                Assert.DoesNotContain(password, string.Join(' ', info.ArgumentList));
+            });
             Assert.All(runner.Commands, command =>
             {
                 Assert.Contains("sudo -S -p ''", command);
@@ -152,19 +163,46 @@ public sealed class DockerSecretTests
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public async Task ProtectedCommandKeepsCredentialOutsideSshArguments()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProtectedCommandKeepsCredentialOutsideSshArguments(bool nonInteractive)
     {
         var runner = new DockerSecretTestsInputRunner();
         var logger = new DockerSecretTestsCaptureLogger<ProcessService>();
         var service = new ProcessService(logger, runner, new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance), new DockerSecretTestsSecrets());
         var host = new ServerHost { User = "user", HostName = "vm" };
-        var result = await service.RunSshCommandWithInput(host, "sudo -S -p '' docker info", Password + "\n");
+        var result = nonInteractive
+            ? await service.RunSshCommandWithInputNonInteractive(host, "sudo -S -p '' docker info", Password + "\n")
+            : await service.RunSshCommandWithInput(host, "sudo -S -p '' docker info", Password + "\n");
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(Password + "\n", runner.Input);
         Assert.DoesNotContain(Password, string.Join(' ', runner.Info!.ArgumentList));
         Assert.DoesNotContain(Password, string.Join('\n', logger.Lines));
         Assert.DoesNotContain(Password, runner.Info.Arguments);
+        if (nonInteractive)
+        {
+            Assert.Equal(16_777_216, runner.OutputLimit);
+            Assert.Contains("StrictHostKeyChecking=yes", runner.Info.ArgumentList);
+            Assert.Contains("RequestTTY=no", runner.Info.ArgumentList);
+            Assert.Contains("ClearAllForwardings=yes", runner.Info.ArgumentList);
+        }
+        else Assert.Null(runner.OutputLimit);
+    }
+
+    [Theory]
+    [InlineData("-oLocalCommand=unsafe")]
+    [InlineData("-oRequestTTY=force")]
+    [InlineData("-R 9000:localhost:80")]
+    public async Task NoninteractiveProtectedCommandRejectsUnsafeCustomOptionsBeforeStarting(string customOptions)
+    {
+        var runner = new DockerSecretTestsInputRunner();
+        var service = new ProcessService(NullLogger<ProcessService>.Instance, runner,
+            new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance), new DockerSecretTestsSecrets());
+        await Assert.ThrowsAsync<ArgumentException>(() => service.RunSshCommandWithInputNonInteractive(
+            new() { HostName = "vm", User = "user", CustomSshOptions = customOptions }, "sudo -S -p '' docker info", Password + "\n"));
+        Assert.Null(runner.Info);
+        Assert.Null(runner.Input);
     }
 
     [Fact]
@@ -176,6 +214,22 @@ public sealed class DockerSecretTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(Password + "\n", result.StandardOutput);
         Assert.DoesNotContain(Password, string.Join(' ', info.ArgumentList));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NoninteractiveAadCommandsRejectUnsupportedAuthenticationBeforeStarting(bool protectedInput)
+    {
+        var runner = new DockerSecretTestsInputRunner();
+        var service = new ProcessService(NullLogger<ProcessService>.Instance, runner,
+            new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance), new DockerSecretTestsSecrets());
+        var host = new ServerHost { HostName = "vm", User = "user", AzureBastion = new() { AuthType = BastionAuthType.Aad } };
+        await Assert.ThrowsAsync<NotSupportedException>(() => protectedInput
+            ? service.RunSshCommandWithInputNonInteractive(host, "sudo -S -p '' docker info", Password + "\n")
+            : service.RunSshCommandResultNonInteractive(host, "docker info"));
+        Assert.Null(runner.Info);
+        Assert.Null(runner.Input);
     }
 
     [Fact]

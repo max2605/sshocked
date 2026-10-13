@@ -6,7 +6,7 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class KeyboardShortcutService(IConfigRepository repository, ITableRendererService? tableRenderer = null,
-    TimeProvider? timeProvider = null) : IKeyboardShortcutService
+    TimeProvider? timeProvider = null, ICommandPaletteService? commandPalette = null) : IKeyboardShortcutService
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
 
@@ -82,6 +82,22 @@ public sealed class KeyboardShortcutService(IConfigRepository repository, ITable
 
             var input = console.Input.ReadKey(true);
             if (input is not { } key) return null;
+
+            if (key.Key == ConsoleKey.P && key.Modifiers.HasFlag(ConsoleModifiers.Control) && commandPalette is not null)
+            {
+                var result = commandPalette.Show(options);
+                if (result is not null) return result;
+                renderedLines = 0;
+                redraw = true;
+                continue;
+            }
+            if (key.Key == ConsoleKey.F1 && commandPalette is not null)
+            {
+                commandPalette.ShowHelp(options);
+                renderedLines = 0;
+                redraw = true;
+                continue;
+            }
 
             if (key.Key is ConsoleKey.UpArrow)
             {
@@ -180,7 +196,7 @@ public sealed class KeyboardShortcutService(IConfigRepository repository, ITable
             }
         }
 
-        var hint = $"[{palette.Muted}]↑↓ Navigate | Shortcut key | Enter Confirm | Esc = Back[/]";
+        var hint = $"[{palette.Muted}]↑↓ Navigate | Shortcut key | Enter Confirm | Esc = Back | Ctrl+P Search | F1 Help[/]";
         lines += WriteMarkupLine(console, hint);
 
         return lines;

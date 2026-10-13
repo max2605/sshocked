@@ -12,6 +12,7 @@ internal sealed class RemoteCommandSession(Process process, ISshConnectionLease 
     private readonly CancellationTokenSource readerCancellation = new();
     private Task stdout = Task.CompletedTask;
     private Task stderr = Task.CompletedTask;
+    private Task exited = Task.CompletedTask;
     private CommandSessionPending? pending;
     private int sequence;
     private int disposed;
@@ -24,6 +25,7 @@ internal sealed class RemoteCommandSession(Process process, ISshConnectionLease 
 
     public void StartReaders()
     {
+        exited = process.WaitForExitAsync();
         stdout = CommandSessionOutputReader.Read(process.StandardOutput, prefix, false, () => Volatile.Read(ref pending), readerCancellation.Token);
         stderr = CommandSessionOutputReader.Read(process.StandardError, prefix, true, () => Volatile.Read(ref pending), readerCancellation.Token);
     }
@@ -54,7 +56,9 @@ internal sealed class RemoteCommandSession(Process process, ISshConnectionLease 
                 "command printf " + RemoteShell.Quote("\\036" + prefix[1..] + sequence + ":%s\\037") + " \"$_sshocked_command_status\" >&8\n";
             await process.StandardInput.WriteAsync(script.AsMemory(), cancellationToken);
             await process.StandardInput.FlushAsync(cancellationToken);
-            var completed = await Task.WhenAny(operation.Completion, stdout, stderr).WaitAsync(cancellationToken);
+            // A shell descendant can keep stdout/stderr open after the shell exits.
+            // Detect the session process exit directly instead of waiting for pipe EOF.
+            var completed = await Task.WhenAny(operation.Completion, stdout, stderr, exited).WaitAsync(cancellationToken);
             if (!operation.Completion.IsCompleted)
             {
                 await completed;

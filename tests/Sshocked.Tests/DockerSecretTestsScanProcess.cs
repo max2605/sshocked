@@ -17,13 +17,18 @@ internal sealed class DockerSecretTestsScanProcess : IProcessService
     }
 
     public Task<string> RunSshCommand(ServerHost host, string command)
+        => throw new InvalidOperationException("Captured commands must use bounded noninteractive execution.");
+
+    public Task<ProcessResult> RunSshCommandResultNonInteractive(ServerHost host, string command, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         Commands.Add(command);
-        return Task.FromResult(Output(command));
+        return Task.FromResult(new ProcessResult(0, Output(command), ""));
     }
 
-    public Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
+    public Task<ProcessResult> RunSshCommandWithInputNonInteractive(ServerHost host, string command, string input, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         Commands.Add(command);
         Inputs.Add(input);
         return Task.FromResult(new ProcessResult(0, Output(command), ""));

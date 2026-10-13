@@ -3,6 +3,7 @@ using Sshocked.Services;
 
 namespace Sshocked.Tests;
 
+[Collection("Managed command sessions")]
 public sealed class ManagedCommandSessionTests : IDisposable
 {
     private readonly string directory = Path.Combine(Path.GetTempPath(), "sshocked-command-session-" + Guid.NewGuid().ToString("N"));
@@ -92,6 +93,29 @@ public sealed class ManagedCommandSessionTests : IDisposable
         await using var session = await Service().Open(host, timeout.Token);
         await Assert.ThrowsAsync<IOException>(() => session.Execute("exit 7", _ => { }, timeout.Token));
         Assert.True(dependencies.LastLease!.IsDisposed);
+    }
+
+    [Fact]
+    public async Task ShellExitIsReportedWhileABackgroundDescendantKeepsOutputPipesOpen()
+    {
+        Directory.CreateDirectory(directory);
+        var release = Path.Combine(directory, "release-child").Replace('\\', '/');
+        var finished = Path.Combine(directory, "child-finished").Replace('\\', '/');
+        await using var session = await Service().Open(host, timeout.Token);
+        using var commandTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            var command = "(i=0; while [ ! -f " + RemoteShell.Quote(release) + " ] && [ \"$i\" -lt 200 ]; do sleep 0.05; i=$((i+1)); done; : > " +
+                RemoteShell.Quote(finished) + ") & exit 7";
+            await Assert.ThrowsAsync<IOException>(() => session.Execute(command, _ => { }, commandTimeout.Token));
+            Assert.True(dependencies.LastLease!.IsDisposed);
+        }
+        finally
+        {
+            File.WriteAllText(release, "release");
+            using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            while (!File.Exists(finished)) await Task.Delay(20, cleanupTimeout.Token);
+        }
     }
 
     [Fact]

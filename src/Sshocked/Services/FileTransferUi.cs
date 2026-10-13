@@ -4,7 +4,8 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class FileTransferUi(IFileTransferService transferService, IPathInputService paths)
+public sealed class FileTransferUi(IFileTransferService transferService, IPathInputService paths,
+    IBatchMenuService? batches = null, IConfigRepository? repository = null)
 {
     public async Task Upload(ServerHost host, bool quick = false)
     {
@@ -70,6 +71,12 @@ public sealed class FileTransferUi(IFileTransferService transferService, IPathIn
     public async Task UploadGroup(IEnumerable<ServerHost> hosts)
     {
         var selectedHosts = hosts.ToList();
+        if (batches is not null)
+        {
+            var ids = selectedHosts.Select(host => host.Id).ToHashSet(StringComparer.Ordinal);
+            await batches.Upload(() => repository is null ? selectedHosts : repository.Load().Hosts.Where(host => ids.Contains(host.Id)).ToList());
+            return;
+        }
         if (selectedHosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]This group has no servers.[/]"); return; }
         var local = SelectLocalPath(false);
         if (local is null) return;
@@ -81,6 +88,12 @@ public sealed class FileTransferUi(IFileTransferService transferService, IPathIn
     public async Task DownloadGroup(IEnumerable<ServerHost> hosts)
     {
         var selectedHosts = hosts.ToList();
+        if (batches is not null)
+        {
+            var ids = selectedHosts.Select(host => host.Id).ToHashSet(StringComparer.Ordinal);
+            await batches.Download(() => repository is null ? selectedHosts : repository.Load().Hosts.Where(host => ids.Contains(host.Id)).ToList());
+            return;
+        }
         if (selectedHosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]This group has no servers.[/]"); return; }
         var remote = PromptPath("Remote file or directory on every server");
         if (remote is null) return;

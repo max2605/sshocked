@@ -20,6 +20,14 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
 
     public Task<ProcessResult> Run(ProcessStartInfo startInfo, CancellationToken cancellationToken = default) => RunCore(startInfo, null, cancellationToken);
 
+    public Task<ProcessResult> RunBounded(ProcessStartInfo startInfo, int maximumOutputBytes,
+        string? input = null, CancellationToken cancellationToken = default)
+    {
+        if (maximumOutputBytes is < 1024 or > 16777216) throw new ArgumentOutOfRangeException(nameof(maximumOutputBytes));
+        startInfo.RedirectStandardInput = true;
+        return RunCore(startInfo, input ?? "", cancellationToken, budget: new(maximumOutputBytes));
+    }
+
     public Task<ProcessResult> RunStreaming(ProcessStartInfo startInfo, Action<string> output, CancellationToken cancellationToken = default)
     {
         var gate = new object();
@@ -35,13 +43,14 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         return RunCore(startInfo, input, cancellationToken);
     }
 
-    private async Task<ProcessResult> RunCore(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken, Func<Task>? onStarted = null, Action<string>? onOutput = null)
+    private async Task<ProcessResult> RunCore(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken, Func<Task>? onStarted = null, Action<string>? onOutput = null, ProcessOutputBudget? budget = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var process = Start(startInfo);
-        var output = startInfo.RedirectStandardOutput ? ReadOutput(process.StandardOutput, onOutput, cancellationToken) : Task.FromResult(string.Empty);
-        var error = startInfo.RedirectStandardError ? ReadOutput(process.StandardError, onOutput, cancellationToken) : Task.FromResult(string.Empty);
-        var inputTask = input is null ? Task.CompletedTask : SendInput(process, input, cancellationToken);
+        using var readers = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var output = startInfo.RedirectStandardOutput ? ReadOutput(process.StandardOutput, onOutput, readers.Token, budget) : Task.FromResult(string.Empty);
+        var error = startInfo.RedirectStandardError ? ReadOutput(process.StandardError, onOutput, readers.Token, budget) : Task.FromResult(string.Empty);
+        var inputTask = input is null ? Task.CompletedTask : SendInput(process, input, readers.Token);
         try
         {
             // A failing output consumer must stop the child even if it is blocked on a full pipe.
@@ -57,6 +66,7 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         }
         catch
         {
+            readers.Cancel();
             try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
             catch (InvalidOperationException) when (process.HasExited) { }
             await process.WaitForExitAsync(CancellationToken.None);
@@ -73,9 +83,9 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
             CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
-    private static async Task<string> ReadOutput(StreamReader reader, Action<string>? onOutput, CancellationToken ct)
+    private static async Task<string> ReadOutput(StreamReader reader, Action<string>? onOutput, CancellationToken ct, ProcessOutputBudget? budget)
     {
-        if (onOutput is null) return await reader.ReadToEndAsync(ct);
+        if (onOutput is null && budget is null) return await reader.ReadToEndAsync(ct);
         // An open remote shell may never fill StreamReader's requested character buffer.
         // Read pipe bytes directly so short output is delivered without waiting for EOF.
         var bytes = new byte[4096];
@@ -86,17 +96,18 @@ public sealed class ExternalProcessRunner : IExternalProcessRunner
         int count;
         while ((count = await reader.BaseStream.ReadAsync(bytes.AsMemory(), ct)) > 0)
         {
+            budget?.Consume(count);
             var characters = decoder.GetChars(bytes.AsSpan(0, count), buffer, flush: false);
             var chunk = new string(buffer, 0, characters);
             captured.Append(chunk);
-            onOutput(chunk);
+            onOutput?.Invoke(chunk);
         }
         var trailing = decoder.GetChars(ReadOnlySpan<byte>.Empty, buffer, flush: true);
         if (trailing > 0)
         {
             var chunk = new string(buffer, 0, trailing);
             captured.Append(chunk);
-            onOutput(chunk);
+            onOutput?.Invoke(chunk);
         }
         return captured.ToString();
     }

@@ -7,7 +7,8 @@ namespace Sshocked.Services;
 public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud,
     ITableRendererService tableRenderer, IConsoleHelperService consoleHelper, IDockerService dockerService,
     IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers,
-    IUiChromeService chrome, IManagedCommandSessionService commandSession, IMacroMenuService macros) : IServerMenuService
+    IUiChromeService chrome, IManagedCommandSessionService commandSession, IMacroMenuService macros,
+    ILocalCredentialService localCredentials) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -207,13 +208,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
     private async Task ScanDockerForHost(ServerHost host)
     {
-        if (host.AuthType == AuthType.Password && host.PasswordSecretRef is null && string.IsNullOrEmpty(host.SshPassword))
-        {
-            AnsiConsole.MarkupLine("[yellow]Docker scan is not supported for password-authenticated hosts.[/]");
-            AnsiConsole.MarkupLine("[grey]Use SSH key or agent authentication to enable Docker scanning.[/]");
-            consoleHelper.WaitForKey();
-            return;
-        }
+        if (!DockerCredentialPrompt.Prepare(host, localCredentials)) return;
 
         if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
         {
@@ -231,7 +226,11 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
         var info = await dockerService.Scan(host);
 
-        if (!info.DockerAvailable)
+        if (info.ScanError is not null)
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(info.ScanError)}[/]");
+        }
+        else if (!info.DockerAvailable)
         {
             AnsiConsole.MarkupLine("[yellow]Docker is not available on this host.[/]");
         }

@@ -16,4 +16,7 @@ public sealed class AppConfig
     public SessionRecordingSettings SessionRecording { get; set; } = new();
     public UISettings UI { get; set; } = new();
     public List<MacroDefinition> Macros { get; set; } = [];
+    public MonitoringSettings Monitoring { get; set; } = new();
+    public List<TargetViewDefinition> TargetViews { get; set; } = [];
+    public List<ForwardingProfile> ForwardingProfiles { get; set; } = [];
 }

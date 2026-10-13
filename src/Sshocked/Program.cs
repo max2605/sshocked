@@ -60,7 +60,8 @@ internal sealed class Program
         {
             logger.LogCritical(ex, "Application terminated with unhandled exception");
             Console.Error.WriteLine($"Error: {AuditRedactor.Redact(ex.Message)}");
-            Environment.ExitCode = ex is OperationCanceledException ? 130 : 1;
+            Environment.ExitCode = ex is OperationCanceledException ? 130
+                : args.FirstOrDefault()?.Equals("monitor", StringComparison.OrdinalIgnoreCase) == true ? 2 : 1;
         }
         finally
         {

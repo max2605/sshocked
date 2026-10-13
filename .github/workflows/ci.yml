@@ -27,3 +27,57 @@ jobs:
 
       - name: Test
         run: dotnet test --configuration Release --no-build --verbosity normal
+
+  native-aot:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-latest
+          - rid: win-x64
+            os: windows-latest
+          - rid: osx-x64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7.0.1
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Linux AOT Dependencies
+        if: startsWith(matrix.rid, 'linux-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev
+          if [ "${{ matrix.rid }}" = "linux-arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            sudo update-alternatives --install /usr/bin/objcopy objcopy /usr/bin/aarch64-linux-gnu-objcopy 100
+          fi
+      - name: Publish Native AOT
+        run: dotnet publish src/Sshocked/Sshocked.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish
+      - name: Check Native CLI Contracts
+        if: matrix.rid != 'linux-arm64'
+        shell: pwsh
+        run: |
+          $binary = if ($IsWindows) { './publish/ssk.exe' } else { './publish/ssk' }
+          $env:SSHOCKED_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'sshocked-native-smoke'
+          & $binary --help
+          if ($LASTEXITCODE -ne 0) { throw 'Native CLI help failed.' }
+          $json = & $binary monitor status --output json
+          if ($LASTEXITCODE -ne 2) { throw 'Empty monitoring status must report incomplete data.' }
+          $json | ConvertFrom-Json | Out-Null
+          & $binary monitor invalid 2>$null
+          if ($LASTEXITCODE -ne 2) { throw 'Invalid monitoring arguments must return exit code 2.' }
+          $forwards = & $binary forward status --output json
+          if ($LASTEXITCODE -ne 0) { throw 'Native forwarding status failed.' }
+          $forwards | ConvertFrom-Json | Out-Null
+          $backup = Join-Path $env:SSHOCKED_CONFIG_DIR 'portable.json'
+          & $binary backup export $backup
+          if ($LASTEXITCODE -ne 0) { throw 'Native backup export failed.' }
+          & $binary backup inspect $backup
+          if ($LASTEXITCODE -ne 0) { throw 'Native backup inspect failed.' }

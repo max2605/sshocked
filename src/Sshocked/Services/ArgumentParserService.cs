@@ -17,7 +17,7 @@ public sealed class ArgumentParserService : IArgumentParserService
             if (args.Length != 2 && !(args.Length == 4 && args[2] == "--container-id")) throw new ArgumentException("Invalid host-id connection arguments.");
             return new ParseResult { TargetHostId = args[1], TargetContainerId = args.Length == 4 ? args[3] : null };
         }
-        if (first is "history" or "audit" or "sessions" or "activity" or "macros")
+        if (first is "history" or "audit" or "sessions" or "activity" or "macros" or "monitor" or "views" or "batch" or "backup" or "diagnostics" or "forward")
             return new ParseResult { ManagementCommand = first, CommandArguments = args[1..] };
 
         if (first is "--help" or "-h")
