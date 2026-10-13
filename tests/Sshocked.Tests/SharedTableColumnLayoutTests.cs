@@ -157,7 +157,9 @@ public sealed class SharedTableColumnLayoutTests
             var output = new TerminalConsoleOutput(new BufferedOutput(Writer), () => width, () => 60, true);
             var console = AnsiConsole.Create(new AnsiConsoleSettings
             {
-                Out = output, Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors
+                Out = output, Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors,
+                // CI profile enrichers can force ANSI despite the plain-text settings.
+                Enrichment = new() { UseDefaultEnrichers = false }
             });
             console.Profile.Capabilities.Unicode = true;
             AnsiConsole.Console = console;

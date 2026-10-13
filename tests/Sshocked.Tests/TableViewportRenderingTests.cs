@@ -19,7 +19,9 @@ public sealed class TableViewportRenderingTests
         {
             Out = output,
             Ansi = AnsiSupport.No,
-            ColorSystem = ColorSystemSupport.NoColors
+            ColorSystem = ColorSystemSupport.NoColors,
+            // Measure terminal cells without CI-specific ANSI profile overrides.
+            Enrichment = new() { UseDefaultEnrichers = false }
         });
         console.Profile.Capabilities.Unicode = true;
         var hosts = new List<ServerHost>

@@ -150,7 +150,9 @@ public sealed class TableHostResolutionRenderingTests
         using var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
-            Out = new AnsiConsoleOutput(output), Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors
+            Out = new AnsiConsoleOutput(output), Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors,
+            // Keep exact text assertions independent of the CI console profile.
+            Enrichment = new() { UseDefaultEnrichers = false }
         });
         console.Profile.Width = 500;
         console.Write(content);

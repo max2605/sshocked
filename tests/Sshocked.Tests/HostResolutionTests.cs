@@ -56,9 +56,12 @@ public sealed class HostResolutionTests
 
         try
         {
-            var scheduled = Task.Run(() => service.GetResolution("example.test", scheduleCheck: true));
+            // A dedicated caller isolates the responsiveness assertion from pool contention
+            // caused by other process/console tests running concurrently.
+            var scheduled = Task.Factory.StartNew(() => service.GetResolution("example.test", scheduleCheck: true),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             var result = await scheduled.WaitAsync(TimeSpan.FromSeconds(1));
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
             Assert.Equal(HostResolutionState.Resolving, result.State);
             Assert.Equal(HostResolutionState.Resolving, service.GetResolution("example.test").State);
         }
