@@ -4,7 +4,10 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud, ITableRendererService tableRenderer, IHostSelectorService hostSelector, IConsoleHelperService consoleHelper, IDockerService dockerService, IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers, IUiChromeService chrome) : IServerMenuService
+public sealed class ServerMenuService(IConfigRepository configRepository, IServerCrudService serverCrud,
+    ITableRendererService tableRenderer, IConsoleHelperService consoleHelper, IDockerService dockerService,
+    IMenuFactory menuFactory, INavigationService nav, IRecentConnectionService recents, FileTransferUi transfers,
+    IUiChromeService chrome, IManagedCommandSessionService commandSession, IMacroMenuService macros) : IServerMenuService
 {
 
     public async Task SelectServer()
@@ -19,42 +22,51 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
 
         nav.Push(ViewType.ServerDetail);
 
-        while (nav.Current == ViewType.ServerDetail)
+        try
         {
-            config = configRepository.Load();
-            AnsiConsole.Clear();
-            chrome.RenderBreadcrumb("Main", "Servers");
-            tableRenderer.RenderServerTable(config);
-
-            var host = hostSelector.SelectHost(config.Hosts, "Select a [green]server[/]");
-            if (host is null)
+            while (true)
             {
-                nav.Pop();
-                return;
-            }
+                config = configRepository.Load();
+                AnsiConsole.Clear();
+                chrome.RenderBreadcrumb("Main", "Servers");
+                tableRenderer.RenderServerTable(config);
 
-            await ShowServerActions(host);
+                var entries = config.Hosts.OrderByDescending(host => host.IsFavorite)
+                    .ThenBy(host => host.Alias, StringComparer.OrdinalIgnoreCase)
+                    .Select(host => new MenuEntry($"{HostVisuals.Alias(host, config.UI.Theme)} [grey]({Markup.Escape(host.HostName)})[/]",
+                        executeAsync: () => ShowServerActions(host))).ToList();
+                entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
+                if (!await menuFactory.RunMenu("[bold yellow]Browse / Manage Servers[/]", entries)) return;
+            }
         }
+        finally { nav.Pop(); }
     }
 
     public async Task ShowServerActions(ServerHost host)
     {
-        bool shouldExit = false;
-
-        while (nav.Current == ViewType.ServerDetail && !shouldExit)
+        // Each entry point owns its navigation frame, including Favorites and Recents at the root.
+        nav.Push(ViewType.ServerDetail);
+        try
         {
-            var config = configRepository.Load();
-            var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
-            if (currentHost is null) return;
-            host = currentHost;
-            AnsiConsole.Clear();
-            chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
-            RenderServerHeader(host);
-            RenderDockerSummary(host);
+            bool shouldExit = false;
 
-            var menuEntries = new List<MenuEntry>
+            while (!shouldExit)
+            {
+                var config = configRepository.Load();
+                var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
+                if (currentHost is null) return;
+                host = currentHost;
+                AnsiConsole.Clear();
+                chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
+                var palette = UiThemePalette.For(config.UI.Theme);
+                RenderServerHeader(host, palette);
+                RenderDockerSummary(host, palette);
+
+                var menuEntries = new List<MenuEntry>
             {
                 new("Connect", 'C', executeAsync: () => consoleHelper.RunSsh(host)),
+                new("Run command / record macro", 'X', executeAsync: () => commandSession.Show(host)),
+                new("Run macro", 'M', executeAsync: () => macros.Run([host])),
                 new(host.IsFavorite ? "Remove favorite" : "Add favorite", 'F', executeAsync: () =>
                 {
                     recents.ToggleFavorite(host);
@@ -90,35 +102,35 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
 
-            var shouldContinue = await menuFactory.RunMenu("[bold yellow]Server Actions[/]", menuEntries);
+                var shouldContinue = await menuFactory.RunMenu("[bold yellow]Server Actions[/]", menuEntries);
 
-            if (!shouldContinue || shouldExit)
-            {
-                return;
+                if (!shouldContinue || shouldExit) return;
             }
         }
+        finally { nav.Pop(); }
     }
 
-    private static void RenderServerHeader(ServerHost host)
+    private static void RenderServerHeader(ServerHost host, UiThemePalette palette)
     {
-        AnsiConsole.MarkupLine($"[bold cyan]Server: {Markup.Escape(host.Alias)}[/]");
+        AnsiConsole.MarkupLine($"[bold {palette.Accent}]Server: {Markup.Escape(host.Alias)}[/]");
         AnsiConsole.MarkupLine($"  Host: {Markup.Escape(host.HostName)}  User: {Markup.Escape(host.User)}  Port: {host.Port}");
+        AnsiConsole.MarkupLine($"[{palette.Muted}]Tags: {Markup.Escape(string.Join(", ", host.Tags))}[/]");
         AnsiConsole.WriteLine();
     }
 
-    private static void RenderDockerSummary(ServerHost host)
+    private static void RenderDockerSummary(ServerHost host, UiThemePalette palette)
     {
         var dockerInfo = host.DockerInfo;
         if (dockerInfo is null)
         {
-            AnsiConsole.MarkupLine("[grey]Docker: Not scanned yet. Use 'Scan Docker' to discover containers.[/]");
+            AnsiConsole.MarkupLine($"[{palette.Muted}]Docker: Not scanned yet. Use 'Scan Docker' to discover containers.[/]");
             AnsiConsole.WriteLine();
             return;
         }
 
         if (!dockerInfo.DockerAvailable)
         {
-            AnsiConsole.MarkupLine("[yellow]Docker: Not available on this host.[/]");
+            AnsiConsole.MarkupLine($"[{palette.Warning}]Docker: Not available on this host.[/]");
             AnsiConsole.WriteLine();
             return;
         }
@@ -127,17 +139,17 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
             ? dockerInfo.LastScannedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
             : "unknown";
 
-        AnsiConsole.MarkupLine($"[green]Docker:[/] v{dockerInfo.ServerVersion ?? "?"}  {dockerInfo.OsType ?? "?"}  ({dockerInfo.Architecture ?? "?"})");
-        AnsiConsole.MarkupLine($"[green]Containers:[/] {dockerInfo.ContainersRunning ?? 0} running / {dockerInfo.ContainersTotal ?? 0} total");
-        AnsiConsole.MarkupLine($"[green]Compose Stacks:[/] {dockerInfo.ComposeStacks.Count}");
-        AnsiConsole.MarkupLine($"[grey]Last scanned: {lastScan}[/]");
+        AnsiConsole.MarkupLine($"[{palette.Success}]Docker:[/] v{Markup.Escape(dockerInfo.ServerVersion ?? "?")}  {Markup.Escape(dockerInfo.OsType ?? "?")}  ({Markup.Escape(dockerInfo.Architecture ?? "?")})");
+        AnsiConsole.MarkupLine($"[{palette.Success}]Containers:[/] {dockerInfo.ContainersRunning ?? 0} running / {dockerInfo.ContainersTotal ?? 0} total");
+        AnsiConsole.MarkupLine($"[{palette.Success}]Compose Stacks:[/] {dockerInfo.ComposeStacks.Count}");
+        AnsiConsole.MarkupLine($"[{palette.Muted}]Last scanned: {lastScan}[/]");
         AnsiConsole.WriteLine();
 
         if (dockerInfo.Containers.Count > 0)
         {
             var table = new Table()
                 .Border(TableBorder.Rounded)
-                .Title("[cyan]Containers[/]")
+                .Title($"[{palette.Accent}]Containers[/]")
                 .AddColumns([
                     new TableColumn("ID").Centered(),
                     new TableColumn("Name").Centered(),
@@ -145,6 +157,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                     new TableColumn("Status").Centered(),
                     new TableColumn("Ports").Centered()
                 ]);
+            table.BorderStyle = Style.Parse(palette.Accent);
 
             foreach (var c in dockerInfo.Containers)
             {
@@ -165,12 +178,13 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
         {
             var stackTable = new Table()
                 .Border(TableBorder.Rounded)
-                .Title("[cyan]Compose Stacks[/]")
+                .Title($"[{palette.Accent}]Compose Stacks[/]")
                 .AddColumns([
                     new TableColumn("Name").Centered(),
                     new TableColumn("Status").Centered(),
                     new TableColumn("Config Files").Centered()
                 ]);
+            stackTable.BorderStyle = Style.Parse(palette.Accent);
 
             foreach (var s in dockerInfo.ComposeStacks)
             {
