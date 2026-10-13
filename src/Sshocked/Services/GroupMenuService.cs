@@ -19,16 +19,19 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
             {
                 var config = configRepository.Load();
                 var palette = UiThemePalette.For(config.UI.Theme);
-                AnsiConsole.Clear();
-                chrome.RenderBreadcrumb("Main", "Groups");
-                tableRenderer.RenderServerTable(config);
-                if (config.Groups.Count == 0)
-                    AnsiConsole.MarkupLine($"[{palette.Muted}]No groups configured. Use Create Group to add one.[/]");
+                void RenderView()
+                {
+                    AnsiConsole.Clear();
+                    chrome.RenderBreadcrumb("Main", "Groups");
+                    tableRenderer.RenderServerTable(configRepository.Load());
+                    if (config.Groups.Count == 0)
+                        AnsiConsole.MarkupLine($"[{palette.Muted}]No groups configured. Use Create Group to add one.[/]");
+                }
 
                 var entries = config.Groups.OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(group => new MenuEntry(Markup.Escape(group.Name), executeAsync: () => ShowGroupDetail(group.Id))).ToList();
                 entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-                if (!await menuFactory.RunMenu("[bold yellow]Browse / Manage Groups[/]", entries)) return;
+                if (!await menuFactory.RunMenu("[bold yellow]Browse / Manage Groups[/]", entries, RenderView)) return;
             }
         }
         finally { nav.Pop(); }
@@ -47,14 +50,17 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
                 var groupHosts = config.Hosts.Where(host => host.GroupId == group.Id).ToList();
                 var groupContainers = containerService.GetSavedByGroup(config, group.Id);
                 var palette = UiThemePalette.For(config.UI.Theme);
-                AnsiConsole.Clear();
-                chrome.RenderBreadcrumb("Main", "Groups", group.Name);
-                AnsiConsole.MarkupLine($"[bold {palette.Accent}]Group: {Markup.Escape(group.Name)}[/]");
-                AnsiConsole.WriteLine();
-                if (groupHosts.Count == 0 && groupContainers.Count == 0)
-                    AnsiConsole.MarkupLine($"[{palette.Muted}]No servers or containers in this group.[/]");
-                if (groupHosts.Count > 0) tableRenderer.RenderGroup(group.Name + " (Servers)", groupHosts);
-                if (groupContainers.Count > 0) containerMenu.RenderGroup(group.Name + " (Containers)", groupContainers, config);
+                void RenderView()
+                {
+                    AnsiConsole.Clear();
+                    chrome.RenderBreadcrumb("Main", "Groups", group.Name);
+                    AnsiConsole.MarkupLine($"[bold {palette.Accent}]Group: {Markup.Escape(group.Name)}[/]");
+                    AnsiConsole.WriteLine();
+                    if (groupHosts.Count == 0 && groupContainers.Count == 0)
+                        AnsiConsole.MarkupLine($"[{palette.Muted}]No servers or containers in this group.[/]");
+                    if (groupHosts.Count > 0) tableRenderer.RenderGroup(group.Name + " (Servers)", groupHosts);
+                    if (groupContainers.Count > 0) containerMenu.RenderGroup(group.Name + " (Containers)", groupContainers, config);
+                }
 
                 var entries = new List<MenuEntry>();
                 if (groupHosts.Count > 0)
@@ -75,7 +81,7 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
                 entries.Add(new("Rename group", 'N', executeAsync: () => { RenameGroup(group); return Task.CompletedTask; }));
                 entries.Add(new("Delete group", 'D', executeAsync: () => { DeleteGroup(group); return Task.CompletedTask; }));
                 entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-                if (!await menuFactory.RunMenu("[bold yellow]Group Actions[/]", entries)) return;
+                if (!await menuFactory.RunMenu("[bold yellow]Group Actions[/]", entries, RenderView)) return;
             }
         }
         finally { nav.Pop(); }

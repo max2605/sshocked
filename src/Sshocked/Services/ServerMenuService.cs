@@ -27,16 +27,19 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
             while (true)
             {
                 config = configRepository.Load();
-                AnsiConsole.Clear();
-                chrome.RenderBreadcrumb("Main", "Servers");
-                tableRenderer.RenderServerTable(config);
+                void RenderView()
+                {
+                    AnsiConsole.Clear();
+                    chrome.RenderBreadcrumb("Main", "Servers");
+                    tableRenderer.RenderServerTable(configRepository.Load());
+                }
 
                 var entries = config.Hosts.OrderByDescending(host => host.IsFavorite)
                     .ThenBy(host => host.Alias, StringComparer.OrdinalIgnoreCase)
                     .Select(host => new MenuEntry($"{HostVisuals.Alias(host, config.UI.Theme)} [grey]({Markup.Escape(host.HostName)})[/]",
                         executeAsync: () => ShowServerActions(host))).ToList();
                 entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-                if (!await menuFactory.RunMenu("[bold yellow]Browse / Manage Servers[/]", entries)) return;
+                if (!await menuFactory.RunMenu("[bold yellow]Browse / Manage Servers[/]", entries, RenderView)) return;
             }
         }
         finally { nav.Pop(); }
@@ -56,11 +59,14 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                 var currentHost = config.Hosts.FirstOrDefault(h => h.Id == host.Id);
                 if (currentHost is null) return;
                 host = currentHost;
-                AnsiConsole.Clear();
-                chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
                 var palette = UiThemePalette.For(config.UI.Theme);
-                RenderServerHeader(host, palette);
-                RenderDockerSummary(host, palette);
+                void RenderView()
+                {
+                    AnsiConsole.Clear();
+                    chrome.RenderBreadcrumb("Main", "Servers", host.Alias);
+                    RenderServerHeader(host, palette);
+                    RenderDockerSummary(host, palette);
+                }
 
                 var menuEntries = new List<MenuEntry>
             {
@@ -102,7 +108,7 @@ public sealed class ServerMenuService(IConfigRepository configRepository, IServe
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
 
-                var shouldContinue = await menuFactory.RunMenu("[bold yellow]Server Actions[/]", menuEntries);
+                var shouldContinue = await menuFactory.RunMenu("[bold yellow]Server Actions[/]", menuEntries, RenderView);
 
                 if (!shouldContinue || shouldExit) return;
             }

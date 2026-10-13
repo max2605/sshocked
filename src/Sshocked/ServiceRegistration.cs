@@ -77,6 +77,8 @@ internal static class ServiceRegistration
         services.AddSingleton<ITableRendererService, TableRendererService>();
         services.AddSingleton<IHostSelectorService, HostSelectorService>();
         services.AddSingleton<IHostReachabilityService, HostReachabilityService>();
+        services.AddSingleton<IDnsResolver, DnsResolver>();
+        services.AddSingleton<IHostResolutionService, HostResolutionService>();
         services.AddSingleton<IUiChromeService, UiChromeService>();
         services.AddSingleton<IUiSettingsMenuService, UiSettingsMenuService>();
         services.AddSingleton<IConsoleHelperService, ConsoleHelperService>();

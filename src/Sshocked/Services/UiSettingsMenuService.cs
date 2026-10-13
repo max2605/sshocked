@@ -17,6 +17,7 @@ public sealed class UiSettingsMenuService(IConfigRepository repository, IConsole
         ui.CompactMode = AnsiConsole.Confirm("Use compact tables (container rows hidden)?", ui.CompactMode);
         ui.ShowReachabilityStatus = AnsiConsole.Confirm("Show host status badges?", ui.ShowReachabilityStatus);
         ui.EnableReachabilityChecks = AnsiConsole.Confirm("Enable background TCP reachability checks?", ui.EnableReachabilityChecks);
+        ui.ShowHostResolution = AnsiConsole.Confirm("Show locally resolved host IP addresses (background DNS lookups)?", ui.ShowHostResolution);
         ui.ShowLastConnectedColumn = AnsiConsole.Confirm("Show last connected times?", ui.ShowLastConnectedColumn);
         ui.ShowBreadcrumbs = AnsiConsole.Confirm("Show navigation breadcrumbs?", ui.ShowBreadcrumbs);
         ui.ShowFooter = AnsiConsole.Confirm("Show version/config/log footer?", ui.ShowFooter);

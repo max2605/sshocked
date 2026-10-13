@@ -23,7 +23,6 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         while (running)
         {
             var config = repository.Load();
-            RenderMain(config);
             var entries = new List<MenuEntry>
             {
                 new("Favorites", 'F', executeAsync: quickAccess.ShowFavorites),
@@ -38,7 +37,8 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
                 new("Settings", 'T', executeAsync: settings.Show),
                 new("Exit", 'E', actionType: MenuActionType.Exit)
             };
-            running = await menu.RunMenu("[bold yellow]Main Menu[/]", entries);
+            running = await menu.RunMenu("[bold yellow]Main Menu[/]", entries,
+                () => RenderMain(repository.Load()));
         }
     }
 
@@ -47,7 +47,6 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         var running = true;
         while (running)
         {
-            RenderMain(repository.Load(), "Main", "Servers");
             var entries = new List<MenuEntry>
             {
                 new("Browse / Manage", 'S', executeAsync: serverMenu.SelectServer),
@@ -55,7 +54,8 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
                 new("Add Server", 'A', executeAsync: () => { AddServer(); return Task.CompletedTask; }),
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
-            running = await menu.RunMenu("[bold yellow]Manage Servers[/]", entries);
+            running = await menu.RunMenu("[bold yellow]Manage Servers[/]", entries,
+                () => RenderMain(repository.Load(), "Main", "Servers"));
         }
     }
 
@@ -64,14 +64,14 @@ public sealed class MainMenuService(IConfigRepository repository, IServerCrudSer
         var running = true;
         while (running)
         {
-            RenderMain(repository.Load(), "Main", "Groups");
             var entries = new List<MenuEntry>
             {
                 new("Browse / Manage", 'S', executeAsync: groupMenu.Browse),
                 new("Create Group", 'A', executeAsync: () => { CreateGroup(); return Task.CompletedTask; }),
                 new("Back", 'B', actionType: MenuActionType.Back)
             };
-            running = await menu.RunMenu("[bold yellow]Manage Groups[/]", entries);
+            running = await menu.RunMenu("[bold yellow]Manage Groups[/]", entries,
+                () => RenderMain(repository.Load(), "Main", "Groups"));
         }
     }
 

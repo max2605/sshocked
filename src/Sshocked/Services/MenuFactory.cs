@@ -13,6 +13,22 @@ public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiCh
         chrome.RenderFooter();
         var choice = keyboardShortcut.ShowMenu(title, entries);
 
+        return await ExecuteChoice(choice);
+    }
+
+    public async Task<bool> RunMenu(string title, List<MenuEntry> entries, Action renderView)
+    {
+        var choice = keyboardShortcut.ShowMenu(title, entries, () =>
+        {
+            renderView();
+            chrome.RenderFooter();
+        });
+
+        return await ExecuteChoice(choice);
+    }
+
+    private async Task<bool> ExecuteChoice(MenuEntry? choice)
+    {
         if (choice?.ActionType == MenuActionType.Exit || choice?.ActionType == MenuActionType.Back)
         {
             return false;
