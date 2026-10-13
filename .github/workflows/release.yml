@@ -64,6 +64,18 @@ jobs:
             -o ./publish
         shell: pwsh
 
+      - name: Verify Native Release Version
+        if: matrix.rid != 'linux-arm64'
+        shell: pwsh
+        run: |
+          $env:SSHOCKED_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'sshocked-release-version'
+          $binary = if ($IsWindows) { './publish/ssk.exe' } else { './publish/ssk' }
+          $expected = 'sshocked version ' + ($env:GITHUB_REF_NAME -replace '^v', '')
+          $actual = & $binary --version
+          if ($LASTEXITCODE -ne 0 -or ($actual -join "`n").Trim() -ne $expected) {
+            throw "Release binary reported an unexpected version: $actual"
+          }
+
       - name: Package Binary (tar.gz)
         if: matrix.archive-ext == 'tar.gz'
         run: |

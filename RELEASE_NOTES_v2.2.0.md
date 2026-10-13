@@ -40,6 +40,8 @@ Background probes, batches and managed forwards do not open authentication or ho
 
 Native AOT downloads remain available for **Windows x64, Linux x64/ARM64 and macOS x64**, with Debian packages for both Linux architectures. OpenSSH Client is required. Windows ARM64 and macOS ARM64 archives are not supplied by this workflow.
 
+Installers reject unavailable architectures before downloading. The Windows installer stops on installation errors and uses an isolated temporary directory with guarded cleanup, so a failed copy cannot report a successful installation.
+
 ## Validation
 
 The merged implementation passed 583 tests on Linux, including real log descriptor/rotation/read-failure tests. Windows passed 581 tests with two platform-dependent symbolic-link tests skipped. Native AOT publishing passed for all four existing release targets, with native CLI checks on Windows x64, Linux x64 and macOS x64; build output reported zero warnings. Tests cover bounded child output, cancellation/cleanup, forwarding lifecycle, private recovery, alarms and changed monitor endpoints. Session lifecycle detects shell exit even when a background child holds output pipes open.
