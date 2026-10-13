@@ -9,9 +9,8 @@ public sealed record UiThemePalette(string Name, string Text, string Background,
     public Style SelectionStyle => Style.Parse(Selection);
     public Style BodyStyle => Style.Parse($"{Text} on {Background}");
 
-    public static UiThemePalette For(string? theme) => string.Equals(theme, "Light", StringComparison.OrdinalIgnoreCase)
-        ? new("Light", "black", "white", "blue", "grey35", "darkgreen", "orange4", "maroon", "white on blue bold")
-        : new("Dark", "silver", "black", "cyan", "grey70", "green3", "yellow", "red", "black on cyan bold");
+    public static UiThemePalette For(string? theme) =>
+        new("Dark", "silver", "black", "cyan", "grey70", "green3", "yellow", "red", "black on cyan bold");
 
     public string AdaptMarkup(string markup)
     {

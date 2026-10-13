@@ -4,7 +4,7 @@ The feedback issues #42–#56 refine the existing SSH workflow. Changes are spli
 
 | Issues | Behavior |
 | --- | --- |
-| #42 | Light uses a white background with dark semantic colors and blue selection; Dark uses a black background with bright accents. Display settings apply immediately. |
+| #42, #67 | Dark uses a black background with bright accents and cyan selection. The Light palette and theme picker have been removed; legacy Light settings load with Dark. |
 | #43, #51, #53 | Browse, Favorites and Recent connections open the same server action menu, including commands, macros, transfers, edit and delete. Back restores the caller's navigation frame. |
 | #44 | Local and remote path prompts accept balanced Windows Copy as path quotes. Arrow keys, Home/End, Delete/Backspace and Windows console mouse clicks position the caret; Esc cancels. |
 | #45 | Settings → Activity and recording combines the activity timeline, event policy, recordings, playback, export and deletion. The CLI has the same common `activity` entry point. |

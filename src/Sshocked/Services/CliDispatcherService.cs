@@ -4,7 +4,7 @@ using Sshocked.Interfaces;
 
 namespace Sshocked.Services;
 
-public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger, IGroupConnectionService groupConnections) : ICliDispatcherService
+public sealed class CliDispatcherService(IConfigRepository configRepository, ISshRunnerService sshRunner, IProcessService processService, IConsoleHelperService consoleHelper, IEnumerable<IManagementCommandHandler> handlers, ILogger<CliDispatcherService> logger, IGroupConnectionService groupConnections, BatchCommandService? batches = null) : ICliDispatcherService
 {
 
     public async Task<bool> Dispatch(ParseResult parseResult)
@@ -60,6 +60,11 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
 
     private async Task<bool> ExecuteGroupCommand(string groupName, string command)
     {
+        if (batches is not null)
+        {
+            await batches.Execute("batch", ["command", command, "--group", groupName, "--execute"]);
+            return true;
+        }
         var config = configRepository.Load();
 
         var group = config.Groups.FirstOrDefault(g =>
@@ -189,6 +194,16 @@ public sealed class CliDispatcherService(IConfigRepository configRepository, ISs
         Console.WriteLine("  ssk activity status|events|recordings|audit  Audit and playback in one module");
         Console.WriteLine("  ssk macros list|record --server ALIAS       Record commands in a persistent session");
         Console.WriteLine("  ssk macros run NAME --server ALIAS|--group NAME|--tag TAG  Execute a saved macro");
+        Console.WriteLine("  ssk monitor status|run|watch [--server ALIAS|--group NAME|--tag TAG] [--kind KIND] [--output json]");
+        Console.WriteLine("  ssk monitor enable|disable [NAME]     Explicitly control continuous monitoring");
+        Console.WriteLine("  ssk monitor create --file definition.json   Add a validated monitor definition");
+        Console.WriteLine("  ssk monitor delete NAME|ack NAME --alarm KEY  Delete a monitor or acknowledge its alarm");
+        Console.WriteLine("  ssk views list|create|edit|delete|preview|select  Manage dynamic AND/OR/NOT tag views");
+        Console.WriteLine("  ssk views command|macro|upload|download|connect NAME [options]  Operate on current view targets");
+        Console.WriteLine("  ssk batch [options]         Preview commands/macros/transfers; --execute starts the plan");
+        Console.WriteLine("  ssk backup export|inspect|preview|restore|recover [options]  Portable backup and local recovery");
+        Console.WriteLine("  ssk diagnostics [options]   Preview or export a redacted local diagnostic bundle");
+        Console.WriteLine("  ssk forward list|create|edit|start|stop|status  Manage SSH local/remote/dynamic forwards");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  ssk prod-db-01             Connect to server 'prod-db-01'");

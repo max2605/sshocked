@@ -8,27 +8,28 @@ namespace Sshocked.Tests;
 public sealed class UiThemePaletteTests
 {
     [Fact]
-    public void LightAndDarkUseDistinctBackgroundsAndSelectionColors()
+    public void LegacyThemeNamesAlwaysResolveToTheDarkPalette()
     {
         var light = UiThemePalette.For("light");
         var dark = UiThemePalette.For("Dark");
-        Assert.Equal(Color.White, light.BodyStyle.Background);
-        Assert.Equal(Color.Black, light.BodyStyle.Foreground);
+        Assert.Equal("Dark", light.Name);
+        Assert.Equal(Color.Black, light.BodyStyle.Background);
+        Assert.Equal(dark.BodyStyle.Foreground, light.BodyStyle.Foreground);
         Assert.Equal(Color.Black, dark.BodyStyle.Background);
-        Assert.NotEqual(light.SelectionStyle, dark.SelectionStyle);
-        Assert.NotEqual(light.Success, dark.Success);
-        Assert.NotEqual(light.Warning, dark.Warning);
-        Assert.NotEqual(light.Error, dark.Error);
+        Assert.Equal(light.SelectionStyle, dark.SelectionStyle);
+        Assert.Equal(light.Success, dark.Success);
+        Assert.Equal(light.Warning, dark.Warning);
+        Assert.Equal(light.Error, dark.Error);
     }
 
     [Fact]
     public void MenuMarkupUsesSemanticColorsAndPreservesEscapedHostMetadata()
     {
         var mapped = UiThemePalette.For("Light").AdaptMarkup("[bold yellow]Manage[/] [grey]host[[green]][/] [cyan]Connect[/]");
-        Assert.Contains("[bold orange4]", mapped);
-        Assert.Contains("[grey35]", mapped);
+        Assert.Contains("[bold yellow]", mapped);
+        Assert.Contains("[grey70]", mapped);
         Assert.Contains("host[[green]]", mapped);
-        Assert.Contains("[blue]Connect", mapped);
+        Assert.Contains("[cyan]Connect", mapped);
         Assert.NotNull(new Markup(mapped));
     }
 
@@ -65,7 +66,7 @@ public sealed class UiThemePaletteTests
     }
 
     [Fact]
-    public void ChangedThemeAppliesImmediatelyEvenWhenBreadcrumbAndFooterAreHidden()
+    public void LegacyLightSettingCannotChangeTheDarkTheme()
     {
         var config = new AppConfig { UI = new() { ShowBreadcrumbs = false, ShowFooter = false } };
         var chrome = new UiChromeService(new TableRendererTestsMemoryRepository(config));
@@ -79,8 +80,9 @@ public sealed class UiThemePaletteTests
             Assert.Equal(Color.Black, AnsiConsole.Background);
             config.UI.Theme = "Light";
             chrome.RenderBreadcrumb("Hidden");
-            Assert.Equal(Color.White, AnsiConsole.Background);
-            Assert.Equal(Color.Black, AnsiConsole.Foreground);
+            Assert.Equal("Dark", config.UI.Theme);
+            Assert.Equal(Color.Black, AnsiConsole.Background);
+            Assert.Equal(Style.Parse("silver").Foreground, AnsiConsole.Foreground);
             chrome.Dispose();
             Assert.Equal(foreground, AnsiConsole.Foreground);
             Assert.Equal(background, AnsiConsole.Background);

@@ -6,7 +6,9 @@ internal sealed class KeyboardShortcutRenderingInput : IAnsiConsoleInput
 {
     private readonly Queue<(ConsoleKeyInfo? Key, Action? Resize)> steps = new();
 
-    public void AddKey(ConsoleKey key, char character = '\0') => steps.Enqueue((new ConsoleKeyInfo(character, key, false, false, false), null));
+    public void AddKey(ConsoleKey key, char character = '\0', ConsoleModifiers modifiers = 0) =>
+        steps.Enqueue((new ConsoleKeyInfo(character, key, modifiers.HasFlag(ConsoleModifiers.Shift),
+            modifiers.HasFlag(ConsoleModifiers.Alt), modifiers.HasFlag(ConsoleModifiers.Control)), null));
     public void AddResize(Action resize) => steps.Enqueue((null, resize));
 
     public bool IsKeyAvailable()

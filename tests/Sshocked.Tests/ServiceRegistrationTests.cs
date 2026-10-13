@@ -39,6 +39,16 @@ public sealed class ServiceRegistrationTests
             Assert.NotNull(provider.GetRequiredService<ITagMenuService>());
             Assert.NotNull(provider.GetRequiredService<IHostResolutionService>());
             Assert.NotNull(provider.GetRequiredService<IDnsResolver>());
+            Assert.Equal(7, provider.GetServices<IMonitoringProvider>().Count());
+            Assert.NotNull(provider.GetRequiredService<IMonitoringService>());
+            Assert.NotNull(provider.GetRequiredService<IMonitoringMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IMacroEditorService>());
+            Assert.NotNull(provider.GetRequiredService<IBatchMenuService>());
+            Assert.NotNull(provider.GetRequiredService<ITargetViewMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IPortForwardingMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IConfigBackupMenuService>());
+            Assert.NotNull(provider.GetRequiredService<IDiagnosticMenuService>());
+            Assert.NotNull(provider.GetRequiredService<ICommandPaletteService>());
         }
         finally
         {

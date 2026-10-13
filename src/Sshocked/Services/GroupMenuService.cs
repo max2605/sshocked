@@ -8,7 +8,8 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
     IServerMenuService serverMenu, ITableRendererService tableRenderer, IHostSelectorService hostSelector,
     IConsoleHelperService consoleHelper, IMenuFactory menuFactory, INavigationService nav,
     IContainerService containerService, IGroupSessionService sessions, IContainerMenuService containerMenu,
-    FileTransferUi transfers, IUiChromeService chrome, IMacroMenuService macros) : IGroupMenuService
+    FileTransferUi transfers, IUiChromeService chrome, IMacroMenuService macros,
+    IContainerGroupService? targetCommands = null) : IGroupMenuService
 {
     public async Task Browse()
     {
@@ -36,6 +37,8 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
         }
         finally { nav.Pop(); }
     }
+
+    public Task ShowGroup(string groupId) => ShowGroupDetail(groupId);
 
     private async Task ShowGroupDetail(string groupId)
     {
@@ -79,6 +82,8 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
                     entries.Add(new("Run command on containers", 'X', executeAsync: () => sessions.RunContainerCommands(config, groupContainers)));
                 }
                 entries.Add(new("Rename group", 'N', executeAsync: () => { RenameGroup(group); return Task.CompletedTask; }));
+                if (targetCommands is not null && (groupHosts.Count > 0 || groupContainers.Count > 0))
+                    entries.Add(new("Run command on all servers and containers", 'A', executeAsync: () => RunAllTargets(groupId)));
                 entries.Add(new("Delete group", 'D', executeAsync: () => { DeleteGroup(group); return Task.CompletedTask; }));
                 entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
                 if (!await menuFactory.RunMenu("[bold yellow]Group Actions[/]", entries, RenderView)) return;
@@ -91,6 +96,28 @@ public sealed class GroupMenuService(IConfigRepository configRepository, IGroupM
     {
         var host = hostSelector.SelectHost(hosts, "Select a [green]server[/]");
         return host is null ? Task.CompletedTask : serverMenu.ShowServerActions(host);
+    }
+
+    private async Task RunAllTargets(string groupId)
+    {
+        if (targetCommands is null) return;
+        var command = AnsiConsole.Prompt(new TextPrompt<string>("Command for group targets (empty cancels):").AllowEmpty());
+        if (string.IsNullOrWhiteSpace(command)) return;
+        var config = configRepository.Load();
+        var targets = config.Hosts.Where(host => host.GroupId == groupId).Select(host => new ConnectionTarget(host, null)).ToList();
+        foreach (var host in config.Hosts)
+            targets.AddRange(host.SavedContainers.Where(container => container.GroupId == groupId).Select(container => new ConnectionTarget(host, container)));
+        foreach (var target in targets) AnsiConsole.WriteLine(target.Label);
+        if (targets.Count == 0 || !AnsiConsole.Confirm($"Run on {targets.Count} targets?", false)) return;
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancel = (_, args) => { args.Cancel = true; cancellation.Cancel(); };
+        Console.CancelKeyPress += cancel;
+        try
+        {
+            foreach (var result in await targetCommands.RunOnTargets(targets, command, ct: cancellation.Token))
+                AnsiConsole.WriteLine($"{result.Target.Label}: {result.State} {result.Error ?? result.Output}");
+        }
+        finally { Console.CancelKeyPress -= cancel; }
     }
 
     private void RenameGroup(ServerGroup group)

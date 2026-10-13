@@ -17,8 +17,8 @@ public sealed class UiChromeService(IConfigRepository repository) : IUiChromeSer
         AnsiConsole.Foreground = palette.BodyStyle.Foreground;
         AnsiConsole.Background = palette.BodyStyle.Background;
         if (!AnsiConsole.Profile.Capabilities.Interactive || System.Console.IsOutputRedirected) return;
-        System.Console.ForegroundColor = palette.Name == "Light" ? ConsoleColor.Black : ConsoleColor.Gray;
-        System.Console.BackgroundColor = palette.Name == "Light" ? ConsoleColor.White : ConsoleColor.Black;
+        System.Console.ForegroundColor = ConsoleColor.Gray;
+        System.Console.BackgroundColor = ConsoleColor.Black;
         if (_appliedTheme == palette.Name) return;
         _appliedTheme = palette.Name;
         AnsiConsole.Clear();

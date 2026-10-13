@@ -14,10 +14,22 @@ internal sealed class MacroTestDependencies : IProcessService, IAuditService, IC
     public string? FailureHost { get; set; }
     public bool RunLocally { get; set; }
     public string? PreparedPassword { get; set; }
+    public int PreparedValidations { get; private set; }
+    public bool LastNonInteractive { get; private set; }
     public ManagedSessionTestLease? LastLease { get; private set; }
     public Task RunSsh(ServerHost host) => Task.CompletedTask;
     public Task RunSshInteractive(ServerHost host, string command) => Task.CompletedTask;
     public Task<string> RunSshCommand(ServerHost host, string command) => Task.FromResult("");
+
+    public Task<ProcessResult> RunSshCommandStreamingValidated(ServerHost host, string command,
+        Action<ServerHost> validatePrepared, Action<string> output, bool nonInteractive = false, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        PreparedValidations++;
+        LastNonInteractive = nonInteractive;
+        validatePrepared(new ServerHost { Id = host.Id, SshPassword = PreparedPassword ?? host.SshPassword, SudoPassword = host.SudoPassword });
+        return RunSshCommandStreaming(host, command, output, ct);
+    }
 
     public async Task<ProcessResult> RunSshCommandStreaming(ServerHost host, string command, Action<string> output, CancellationToken ct = default)
     {

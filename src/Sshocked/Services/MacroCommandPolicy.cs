@@ -6,6 +6,16 @@ public static class MacroCommandPolicy
 {
     public const int MaximumCommands = 1000;
     public const int MaximumCommandLength = 16384;
+    public const int MaximumNameLength = 80;
+
+    public static string NormalizeName(string name)
+    {
+        if (name.Any(char.IsControl)) throw new ArgumentException($"Use a macro name of 1 to {MaximumNameLength} characters without control characters.");
+        name = name.Trim();
+        if (name.Length is < 1 or > MaximumNameLength)
+            throw new ArgumentException($"Use a macro name of 1 to {MaximumNameLength} characters.");
+        return name;
+    }
 
     public static void Validate(string command, ServerHost? host = null)
     {

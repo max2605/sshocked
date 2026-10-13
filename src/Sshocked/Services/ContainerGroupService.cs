@@ -16,7 +16,7 @@ public sealed class ContainerGroupService(
     {
         foreach (var host in config.Hosts)
         {
-            if (host.SavedContainers.Any(c => c.Id == container.Id))
+            if (host.SavedContainers.Any(c => ReferenceEquals(c, container) || (!string.IsNullOrEmpty(container.Id) && c.Id == container.Id)))
             {
                 return host;
             }
@@ -55,6 +55,7 @@ public sealed class ContainerGroupService(
 
     public async Task RunCommandOnAll(AppConfig config, List<ContainerModel> containers, string command)
     {
+        var targets = new List<ConnectionTarget>();
         foreach (var container in containers)
         {
             var server = FindParentServer(config, container);
@@ -65,45 +66,42 @@ public sealed class ContainerGroupService(
                 continue;
             }
 
-            EnsureSudoPassword(server);
-
-            var header = $"-- {container.Alias ?? container.Name} ({server.Alias}) ";
-            AnsiConsole.Markup($"[bold]{Markup.Escape(header)}[/]");
-            AnsiConsole.WriteLine(new string('-', Math.Max(1, 60 - header.Length)));
-
-            try
-            {
-                var dockerCommand = $"docker exec -- {DockerCommandSyntax.QuoteContainerName(container.Name)} {command}";
-                var output = await DockerSudo.Run(processService, secrets, server, dockerCommand);
-                Console.Write(output);
-
-                if (!output.EndsWith('\n'))
-                {
-                    Console.WriteLine();
-                }
-            }
-            catch (Exception ex)
-            {
-                AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
-            }
-
-            AnsiConsole.WriteLine();
+            targets.Add(new(server, container));
         }
-
+        foreach (var result in await RunOnTargets(targets, command))
+        {
+            AnsiConsole.WriteLine($"-- {result.Target.Label} ({result.State})");
+            AnsiConsole.WriteLine(result.Error ?? result.Output);
+        }
     }
 
-    private static void EnsureSudoPassword(ServerHost host)
+    public Task<IReadOnlyList<DockerActionResult>> RunOnTargets(IReadOnlyList<ConnectionTarget> targets, string command,
+        int maxConcurrency = 4, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(host.SudoPassword) && host.SudoPasswordSecretRef is null)
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
+        if (command.Contains('\0')) throw new ArgumentException("Commands cannot contain NUL.", nameof(command));
+        var unique = targets.DistinctBy(target => (target.Host.Id, target.Container is null ? null : DockerCommandSyntax.Identifier(target.Container))).ToArray();
+        return DockerBatchRunner.Run<ConnectionTarget, DockerActionResult>(unique, maxConcurrency, async target =>
         {
-            var needsSudo = AnsiConsole.Confirm("Does this host require [yellow]sudo[/] to run Docker commands?", false);
-            if (needsSudo)
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(45));
+            try
             {
-                host.SudoPassword = AnsiConsole.Prompt(
-                    new TextPrompt<string>("Enter [yellow]sudo password[/]:")
-                        .Secret());
+                var result = target.Container is null ? await processService.RunSshCommandResultNonInteractive(target.Host, command, timeout.Token)
+                    : await DockerSudo.RunResult(processService, secrets, target.Host,
+                        $"docker exec -- {DockerCommandSyntax.QuoteContainerName(DockerCommandSyntax.Identifier(target.Container))} sh -lc {DockerCommandSyntax.QuoteCommand(command)}", timeout.Token);
+                var output = SshCredentialRedactor.RedactCommand(result.StandardOutput + result.StandardError, target.Host);
+                return result.ExitCode == 0 ? new(target, DockerActionState.Succeeded, result.ExitCode, output)
+                    : new(target, DockerActionState.Failed, result.ExitCode, output, target.Container is null ? $"Remote command failed (exit code {result.ExitCode})." : DockerFailure.Message(result));
             }
-        }
+            catch (OperationCanceledException) { return new(target, ct.IsCancellationRequested ? DockerActionState.Cancelled : DockerActionState.Failed, Error: "Command cancelled or timed out; check the target before retrying."); }
+            catch (ProcessOutputLimitException) { return new(target, DockerActionState.Failed, Error: "Command output exceeded the capture limit; check the target before retrying."); }
+            catch (Exception error)
+            {
+                logger.LogWarning("Target command failed for {Alias}: {FailureType}", target.Host.Alias, error.GetType().Name);
+                return new(target, DockerActionState.Failed, Error: "Remote command could not authenticate or connect. Check the server credentials and connectivity.");
+            }
+        }, target => new(target, DockerActionState.Cancelled, Error: "Command cancelled before starting."), ct);
     }
 
 }

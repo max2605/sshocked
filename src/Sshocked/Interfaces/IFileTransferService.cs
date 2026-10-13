@@ -8,6 +8,12 @@ public interface IFileTransferService
         bool recursive = false, CancellationToken cancellationToken = default);
     Task<int> DownloadFile(ServerHost host, string remotePath, string localPath,
         bool recursive = false, CancellationToken cancellationToken = default);
+    Task<int> UploadFileNonInteractive(ServerHost host, string localPath, string remotePath,
+        bool recursive = false, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer service does not support noninteractive batches.");
+    Task<int> DownloadFileNonInteractive(ServerHost host, string remotePath, string localPath,
+        bool recursive = false, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("This transfer service does not support noninteractive batches.");
     Task<List<RemoteFileEntry>> ListRemoteDirectory(ServerHost host, string remotePath,
         CancellationToken cancellationToken = default);
     Task<List<FileTransferResult>> UploadToGroup(IEnumerable<ServerHost> hosts, string localPath,

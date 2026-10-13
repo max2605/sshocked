@@ -48,22 +48,36 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
     public Task<ProcessResult> RunSshCommandResult(ServerHost host, string command, CancellationToken ct = default)
         => ExecuteCommand(host, command, input: null, sendInput: false, ct);
 
+    public Task<ProcessResult> RunSshCommandResultNonInteractive(ServerHost host, string command, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input: null, sendInput: false, ct, nonInteractive: true);
+
+    public Task<ProcessResult> RunSshCommandStreamingValidated(ServerHost host, string command,
+        Action<ServerHost> validatePrepared, Action<string> output, bool nonInteractive = false, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input: null, sendInput: false, ct, output, nonInteractive, validatePrepared);
+
     public Task<ProcessResult> RunSshCommandStreaming(ServerHost host, string command, Action<string> output, CancellationToken ct = default)
         => ExecuteCommand(host, command, input: null, sendInput: false, ct, output);
 
     public Task<ProcessResult> RunSshCommandWithInput(ServerHost host, string command, string input, CancellationToken ct = default)
         => ExecuteCommand(host, command, input, sendInput: true, ct);
 
-    private async Task<ProcessResult> ExecuteCommand(ServerHost host, string command, string? input, bool sendInput, CancellationToken ct, Action<string>? output = null)
+    public Task<ProcessResult> RunSshCommandWithInputNonInteractive(ServerHost host, string command, string input, CancellationToken ct = default)
+        => ExecuteCommand(host, command, input, sendInput: true, ct, nonInteractive: true);
+
+    private async Task<ProcessResult> ExecuteCommand(ServerHost host, string command, string? input, bool sendInput, CancellationToken ct,
+        Action<string>? output = null, bool nonInteractive = false, Action<ServerHost>? validatePrepared = null)
     {
         var elapsed = Stopwatch.StartNew();
         var auditHost = host;
         try
         {
             // AAD needs the CLI-issued SSH certificate; a TCP tunnel cannot authenticate it.
-            var aad = !sendInput && host.AzureBastion?.AuthType == BastionAuthType.Aad && host.KeySecretRef is null && host.PasswordSecretRef is null;
+            var requiresAad = host.AzureBastion?.AuthType == BastionAuthType.Aad && host.KeySecretRef is null && host.PasswordSecretRef is null;
+            if (nonInteractive && requiresAad) throw new NotSupportedException("Batch commands require a checked key/password SSH tunnel.");
+            var aad = !sendInput && requiresAad;
             await using var connection = await connectionPreparer.Prepare(host, useTunnel: !aad, ct);
             auditHost = connection.Host;
+            validatePrepared?.Invoke(connection.Host);
             ProcessResult result;
             if (aad)
             {
@@ -72,9 +86,12 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             }
             else
             {
-                var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command);
-                result = sendInput ? await runner.RunWithInput(info, input!, ct)
+                var info = CreateSshStartInfo(connection, captureOutput: true, tty: false, command, nonInteractive);
+                result = nonInteractive ? await runner.RunBounded(info, 16777216, input, ct)
+                    : sendInput ? await runner.RunWithInput(info, input!, ct)
                     : output is null ? await runner.Run(info, ct) : await runner.RunStreaming(info, output, ct);
+                if (nonInteractive && output is not null)
+                { output(result.StandardOutput); output(result.StandardError); }
             }
             RecordCommand(auditHost, command, result.ExitCode, elapsed.Elapsed.TotalSeconds);
             return result;
@@ -111,7 +128,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
 
     public Task<ISshConnectionLease> PrepareConnection(ServerHost host, CancellationToken ct = default) => connectionPreparer.Prepare(host, true, ct);
 
-    private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command)
+    private static ProcessStartInfo CreateSshStartInfo(ISshConnectionLease connection, bool captureOutput, bool tty, string? command, bool nonInteractive = false)
     {
         var info = new ProcessStartInfo
         {
@@ -123,6 +140,7 @@ public sealed class ProcessService(ILogger<ProcessService> logger, IExternalProc
             StandardOutputEncoding = captureOutput ? Encoding.UTF8 : null,
             StandardErrorEncoding = captureOutput ? Encoding.UTF8 : null
         };
+        if (nonInteractive) NonInteractiveSshOptions.Apply(info, connection.Host);
         foreach (var argument in SshArguments.Build(connection.Host, tty, command)) info.ArgumentList.Add(argument);
         foreach (var variable in connection.Environment) info.Environment[variable.Key] = variable.Value;
         return info;

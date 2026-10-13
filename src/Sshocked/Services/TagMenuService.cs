@@ -7,28 +7,29 @@ namespace Sshocked.Services;
 public sealed class TagMenuService(IConfigRepository repository, IServerTagService tags,
     ITableRendererService tables, IMenuFactory menus, IUiChromeService chrome,
     IHostSelectorService hostSelector, IServerMenuService servers, IGroupSessionService sessions,
-    FileTransferUi transfers, IMacroMenuService macros) : ITagMenuService
+    FileTransferUi transfers, IMacroMenuService macros, IContainerMenuService containers,
+    IContainerGroupService targetCommands, ILocalCredentialService localCredentials) : ITagMenuService
 {
     public async Task Show()
     {
         while (true)
         {
             var config = repository.Load();
-            var available = tags.GetAll(config.Hosts);
+            var available = tags.GetAllTargets(config.Hosts);
             var palette = UiThemePalette.For(config.UI.Theme);
             void RenderView()
             {
                 AnsiConsole.Clear();
                 chrome.RenderBreadcrumb("Main", "Servers", "Tags");
-                AnsiConsole.MarkupLine($"[{palette.Muted}]Tags select current servers across static groups. Edit a server to assign tags.[/]");
-                if (available.Count == 0) AnsiConsole.MarkupLine($"[{palette.Muted}]No server tags assigned yet.[/]");
+                AnsiConsole.MarkupLine($"[{palette.Muted}]Tags select servers and saved containers across static groups. Each target uses its own tags.[/]");
+                if (available.Count == 0) AnsiConsole.MarkupLine($"[{palette.Muted}]No target tags assigned yet.[/]");
             }
-            var entries = available.Select(tag => new MenuEntry($"{Markup.Escape(tag)} [grey]({tags.Filter(config.Hosts, [tag]).Count} servers)[/]",
+            var entries = available.Select(tag => new MenuEntry($"{Markup.Escape(tag)} [grey]({tags.FilterTargets(config.Hosts, [tag]).Count} targets)[/]",
                 executeAsync: () => ShowTargets([tag]))).ToList();
             if (available.Count > 1)
                 entries.Add(new("Filter by multiple tags", 'T', executeAsync: () => SelectTags(available, config)));
             entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
-            if (!await menus.RunMenu("[bold yellow]Filter Servers by Tag[/]", entries, RenderView)) return;
+            if (!await menus.RunMenu("[bold yellow]Filter Targets by Tag[/]", entries, RenderView)) return;
         }
     }
 
@@ -42,6 +43,8 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
         return selected.Count == 0 ? Task.CompletedTask : ShowTargets(selected);
     }
 
+    public Task ShowTag(string tag) => ShowTargets([tag]);
+
     private async Task ShowTargets(List<string> selectedTags)
     {
         var label = string.Join(" + ", selectedTags);
@@ -49,12 +52,15 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
         {
             var config = repository.Load();
             var hosts = tags.Filter(config.Hosts, selectedTags);
+            var targets = tags.FilterTargets(config.Hosts, selectedTags);
+            var matchingContainers = targets.Where(target => target.Container is not null).Select(target => target.Container!).ToList();
             void RenderView()
             {
                 AnsiConsole.Clear();
                 chrome.RenderBreadcrumb("Main", "Servers", "Tags", label);
                 tables.RenderGroup("Tags: " + label, hosts);
-                AnsiConsole.MarkupLine($"[{UiThemePalette.For(config.UI.Theme).Muted}]{hosts.Count} servers match all selected tags. Membership refreshes after each action.[/]");
+                if (matchingContainers.Count > 0) containers.RenderGroup("Tags: " + label, matchingContainers, config);
+                AnsiConsole.MarkupLine($"[{UiThemePalette.For(config.UI.Theme).Muted}]{targets.Count} targets match all selected tags. Membership refreshes after each action.[/]");
             }
             var entries = new List<MenuEntry>();
             if (hosts.Count > 0)
@@ -66,9 +72,36 @@ public sealed class TagMenuService(IConfigRepository repository, IServerTagServi
                 entries.Add(new("Upload to matching servers", 'U', executeAsync: () => transfers.UploadGroup(hosts)));
                 entries.Add(new("Download from matching servers", 'O', executeAsync: () => transfers.DownloadGroup(hosts)));
             }
+            if (matchingContainers.Count > 0)
+            {
+                entries.Add(new("Select container...", 'T', executeAsync: () => containers.SelectFromGroup(config, matchingContainers)));
+                entries.Add(new("Exec matching containers", 'E', executeAsync: () => sessions.ConnectContainers(config, matchingContainers)));
+                entries.Add(new("Operate matching containers", 'O', executeAsync: () => containers.ShowBatchActions(targets.Where(target => target.Container is not null).ToList())));
+            }
+            if (targets.Count > 0) entries.Add(new("Run command on all matching targets", 'X', executeAsync: () => RunTargets(targets)));
             entries.Add(new("Back", 'B', actionType: MenuActionType.Back));
             if (!await menus.RunMenu("[bold yellow]Tag Actions[/]", entries, RenderView)) return;
         }
+    }
+
+    private async Task RunTargets(List<ConnectionTarget> targets)
+    {
+        var command = AnsiConsole.Prompt(new TextPrompt<string>("Command for all matching servers and containers ([grey]empty cancels[/]):").AllowEmpty());
+        if (string.IsNullOrWhiteSpace(command)) return;
+        foreach (var host in targets.Select(target => target.Host).DistinctBy(host => host.Id))
+            if (!DockerCredentialPrompt.Prepare(host, localCredentials)) return;
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancel = (_, args) => { args.Cancel = true; cancellation.Cancel(); };
+        Console.CancelKeyPress += cancel;
+        try
+        {
+            foreach (var result in await targetCommands.RunOnTargets(targets, command, ct: cancellation.Token))
+            {
+                AnsiConsole.WriteLine($"-- {result.Target.Label} ({result.State})");
+                AnsiConsole.WriteLine(result.Error ?? result.Output);
+            }
+        }
+        finally { Console.CancelKeyPress -= cancel; }
     }
 
     private Task SelectServer(List<ServerHost> hosts)

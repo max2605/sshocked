@@ -1,6 +1,6 @@
 # Host indicators and display settings
 
-Open **Display settings** under **Settings** to choose Dark/Light colors, compact tables, the status, host-resolution and last-connected columns, navigation breadcrumbs, and the version/configuration footer.
+Open **Display settings** under **Settings** to choose compact tables, the status, host-resolution and last-connected columns, navigation breadcrumbs, and the version/configuration footer. The terminal uses a single dark palette.
 
 Server tables show favorite stars first, colored authentication badges, Docker container counts, tags, and relative connection times. Counts deduplicate containers that appear in both a scan and the saved list. Normal tables retain favorite indicators and last-connected times on saved-container rows; compact mode shows host rows only. A host configured for Azure Bastion always displays the Azure badge even if its underlying authentication is an SSH key or password.
 
@@ -28,9 +28,11 @@ Host pickers include favorite, authentication, and Docker badges, place favorite
 
 Breadcrumbs identify the current menu path and escape user-provided names as literal text. The footer shows the application version and the actual configuration and log locations. Its log location is informational; it does not advertise an unavailable log hotkey.
 
-Light and Dark apply immediately to the terminal background, foreground, table borders, semantic badges, menu text and selection. Light uses dark text and blue selection on white; Dark uses bright accents and cyan selection on black. Theme adaptation preserves escaped host metadata as literal text.
+The dark palette uses bright accents and cyan selection on black. Older configurations containing `Light` load normally and use the dark palette. Escaped host metadata remains literal text.
 
 Dynamic menu entries, including recent connections, receive distinct available shortcuts. Explicit action keys such as Back remain reserved; arrow-key navigation handles rows after the shortcut alphabet is exhausted.
+
+**Ctrl+P** opens the searchable command palette. It includes current menu actions and fresh host, group and tag targets. Type multiple words to filter, use arrows to select, Enter to run, and Esc to return to the original selection. F1 shows the actual shortcuts assigned to the current menu.
 
 On Windows, table layout follows the visible console window rather than the width of its scroll buffer. Startup uses UTF-8 so badge characters retain their intended display width. Table views redraw their breadcrumb, tables, footer and menu when the window is maximized, restored or resized, including while waiting for a key. The selected menu entry is preserved. A one-column margin avoids wrapping at the Windows console's right edge.
 

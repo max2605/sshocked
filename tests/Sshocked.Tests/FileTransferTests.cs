@@ -36,16 +36,20 @@ public sealed class FileTransferTests : IDisposable
         Assert.Equal("alice@[2001:db8::123]:~/file", args[^1]);
     }
 
-    [Fact]
-    public void ScpParsesCustomOptionsWithoutExecutingShell()
+    [Theory]
+    [InlineData("-v")]
+    [InlineData("-vv")]
+    [InlineData("-vvv")]
+    public void ScpParsesCustomOptionsWithoutExecutingShell(string verbosity)
     {
         var host = Host();
         host.AuthType = AuthType.CustomConfig;
-        host.CustomSshOptions = "-o 'ProxyCommand=ssh -W %h:%p jump' -F \"config with spaces\" -C -4";
+        host.CustomSshOptions = "-o 'ProxyCommand=ssh -W %h:%p jump' -F \"config with spaces\" -C -4 " + verbosity;
         var args = ScpArguments.Build(host, Path.Combine(directory, "file"), "/tmp/file", true);
         Assert.Contains("ProxyCommand=ssh -W %h:%p jump", args);
         Assert.Contains("config with spaces", args);
         Assert.Contains("-C", args);
+        Assert.Contains(verbosity, args);
     }
 
     [Theory]
