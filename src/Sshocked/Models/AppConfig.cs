@@ -15,4 +15,5 @@ public sealed class AppConfig
     public GlobalHooks GlobalHooks { get; set; } = new();
     public SessionRecordingSettings SessionRecording { get; set; } = new();
     public UISettings UI { get; set; } = new();
+    public List<MacroDefinition> Macros { get; set; } = [];
 }

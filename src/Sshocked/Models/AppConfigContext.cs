@@ -8,6 +8,8 @@ namespace Sshocked.Models;
 [JsonSerializable(typeof(List<AuditEntry>))]
 [JsonSerializable(typeof(ServerGroup))]
 [JsonSerializable(typeof(ServerHost))]
+[JsonSerializable(typeof(MacroDefinition))]
+[JsonSerializable(typeof(List<MacroDefinition>))]
 [JsonSerializable(typeof(AuthType))]
 [JsonSerializable(typeof(ConnectionStrategy))]
 [JsonSerializable(typeof(DockerHostInfo))]
