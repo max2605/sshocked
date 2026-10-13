@@ -24,8 +24,13 @@ A .NET console application that provides a fast, interactive terminal UI for man
 - **Azure connections and secrets** — Native Bastion or managed TCP tunnels, named Azure Key Vault providers, and temporary SSH credentials
 - **Connection hooks** — Global/per-host local actions and remote shell setup/cleanup
 - **Session output recordings** — Opt-in timed cast files with replay, export, compression, and retention
+- **Reusable command macros** — Record commands in a persistent SSH shell and replay them on servers, groups or tag matches
+- **Activity and recording** — One menu and CLI for structured events, timed output and playback
+- **Local passwords** — User-scoped Windows DPAPI storage, editable per server with askpass authentication
 
 See [the implementation guide](docs/ISSUE_IMPLEMENTATION.md) for the new menus, CLI examples, validation, and platform limitations. Detailed guides cover [SSH keys/config sync](docs/FEATURES.md), [hooks](docs/CONNECTION_HOOKS.md), [recordings](docs/SESSION_RECORDING.md), and [display settings](docs/VISUALS.md).
+
+The [user feedback guide](docs/USER_FEEDBACK.md) covers shared server menus, tags, command macros, theme contrast, editable paths, reachability and local passwords.
 
 ## Tech Stack
 

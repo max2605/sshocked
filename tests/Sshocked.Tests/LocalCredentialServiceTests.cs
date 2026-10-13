@@ -52,8 +52,14 @@ public sealed class LocalCredentialServiceTests
         if (!OperatingSystem.IsWindows()) return;
         var directory = Path.Combine(Path.GetTempPath(), "sshocked-dpapi-route-test-" + Guid.NewGuid().ToString("N"));
         var service = new LocalCredentialService(directory);
-        var host = new ServerHost { Id = "bastion", HostName = "private", User = "alice", AzureBastion = new()
-        { BastionName = "same-name", BastionResourceGroup = "same-group", TargetIpAddress = "10.0.0.5", SubscriptionId = "original", TenantId = "tenant", TargetPort = 22 } };
+        var host = new ServerHost
+        {
+            Id = "bastion",
+            HostName = "private",
+            User = "alice",
+            AzureBastion = new()
+            { BastionName = "same-name", BastionResourceGroup = "same-group", TargetIpAddress = "10.0.0.5", SubscriptionId = "original", TenantId = "tenant", TargetPort = 22 }
+        };
         try
         {
             service.SavePassword(host, "private-value");
