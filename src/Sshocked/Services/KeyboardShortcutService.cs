@@ -4,7 +4,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-public sealed class KeyboardShortcutService : IKeyboardShortcutService
+public sealed class KeyboardShortcutService(IConfigRepository repository) : IKeyboardShortcutService
 {
     public MenuEntry? ShowMenu(string title, List<MenuEntry> options)
     {
@@ -12,6 +12,8 @@ public sealed class KeyboardShortcutService : IKeyboardShortcutService
         {
             return null;
         }
+        options = new MenuShortcutAllocator().Assign(options);
+        var palette = UiThemePalette.For(repository.Load().UI.Theme);
 
         var shortcutMap = new Dictionary<char, MenuEntry>();
         foreach (var entry in options)
@@ -33,18 +35,18 @@ public sealed class KeyboardShortcutService : IKeyboardShortcutService
                 Console.Write($"\x1b[{renderedLines}A\x1b[0J");
             }
 
-            renderedLines = RenderMenu(title, options, selectedIndex);
+            renderedLines = RenderMenu(title, options, selectedIndex, palette);
             firstRender = false;
 
             var key = System.Console.ReadKey(true);
 
-            if (key.Key is ConsoleKey.UpArrow or ConsoleKey.K)
+            if (key.Key is ConsoleKey.UpArrow)
             {
                 selectedIndex = selectedIndex > 0 ? selectedIndex - 1 : options.Count - 1;
                 continue;
             }
 
-            if (key.Key is ConsoleKey.DownArrow or ConsoleKey.J)
+            if (key.Key is ConsoleKey.DownArrow)
             {
                 selectedIndex = (selectedIndex + 1) % options.Count;
                 continue;
@@ -106,11 +108,11 @@ public sealed class KeyboardShortcutService : IKeyboardShortcutService
         return null;
     }
 
-    private static int RenderMenu(string title, List<MenuEntry> options, int selectedIndex)
+    private static int RenderMenu(string title, List<MenuEntry> options, int selectedIndex, UiThemePalette palette)
     {
         var lines = 0;
 
-        AnsiConsole.MarkupLine($"{title}");
+        AnsiConsole.MarkupLine(palette.AdaptMarkup(title));
         lines++;
         AnsiConsole.WriteLine();
         lines++;
@@ -122,16 +124,16 @@ public sealed class KeyboardShortcutService : IKeyboardShortcutService
 
             if (i == selectedIndex)
             {
-                AnsiConsole.MarkupLine($"{prefix}[reverse]{entry.DisplayLabel}[/]");
+                AnsiConsole.MarkupLine($"{prefix}[{palette.Selection}]{Markup.Escape(Markup.Remove(entry.DisplayLabel))}[/]");
             }
             else
             {
-                AnsiConsole.MarkupLine($"{prefix}{entry.DisplayLabel}");
+                AnsiConsole.MarkupLine($"{prefix}{palette.AdaptMarkup(entry.DisplayLabel)}");
             }
             lines++;
         }
 
-        var hint = "[grey]↑↓ Navigate | Shortcut key | Enter Confirm | Esc = Back[/]";
+        var hint = $"[{palette.Muted}]↑↓ Navigate | Shortcut key | Enter Confirm | Esc = Back[/]";
         AnsiConsole.MarkupLine(hint);
         lines++;
 
