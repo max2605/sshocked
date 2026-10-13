@@ -6,7 +6,7 @@ using Sshocked.Models;
 namespace Sshocked.Services;
 
 public sealed class ServerCrudService(IConfigRepository repository, IServerFormService form,
-    ILogger<ServerCrudService> logger) : IServerCrudService
+    ILogger<ServerCrudService> logger, ILocalCredentialService? localCredentials = null) : IServerCrudService
 {
     public ServerHost? Add()
     {
@@ -46,6 +46,7 @@ public sealed class ServerCrudService(IConfigRepository repository, IServerFormS
     {
         if (!AnsiConsole.Confirm($"Are you sure you want to delete '[yellow]{Markup.Escape(host.Alias)}[/]'?")) return false;
         repository.Update(config => config.Hosts.RemoveAll(current => current.Id == host.Id));
+        localCredentials?.ClearPassword(host);
         logger.LogInformation("Deleted host '{Alias}'", host.Alias);
         return true;
     }

@@ -3,7 +3,7 @@ using Sshocked.Models;
 
 namespace Sshocked.Services;
 
-internal sealed class SshConnectionPreparer(IBastionService bastionService, ISecretProviderRegistry secrets, string? applicationExecutable = null)
+internal sealed class SshConnectionPreparer(IBastionService bastionService, ISecretProviderRegistry secrets, string? applicationExecutable = null, ILocalCredentialService? localCredentials = null)
 {
     public async Task<ISshConnectionLease> Prepare(ServerHost host, bool useTunnel, CancellationToken ct)
     {
@@ -36,11 +36,23 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
         if (host.PasswordSecretRef != null)
         {
             if (host.PasswordSecretRef.SecretType != SecretType.Password) throw new ArgumentException("SSH password reference must use Password.");
-            SshAskPass.Configure(lease.Variables, await ResolveValue(host.PasswordSecretRef, ct), applicationExecutable ?? Environment.ProcessPath);
+            var password = await ResolveValue(host.PasswordSecretRef, ct);
+            SshAskPass.Configure(lease.Variables, password, applicationExecutable ?? Environment.ProcessPath);
+            prepared.SshPassword = password;
             prepared.AuthType = AuthType.Password;
             if (prepared.AzureBastion != null) prepared.AzureBastion.AuthType = BastionAuthType.Password;
         }
-        else if (!string.IsNullOrEmpty(host.SshPassword)) SshAskPass.Configure(lease.Variables, host.SshPassword, applicationExecutable ?? Environment.ProcessPath);
+        else
+        {
+            var password = host.SshPassword;
+            if (string.IsNullOrEmpty(password) && (host.AuthType == AuthType.Password || host.AzureBastion?.AuthType == BastionAuthType.Password))
+                password = localCredentials?.GetPassword(host);
+            if (!string.IsNullOrEmpty(password))
+            {
+                SshAskPass.Configure(lease.Variables, password, applicationExecutable ?? Environment.ProcessPath);
+                prepared.SshPassword = password;
+            }
+        }
     }
 
     private async Task PrepareTunnel(SshConnectionLease lease, CancellationToken ct)
@@ -80,6 +92,7 @@ internal sealed class SshConnectionPreparer(IBastionService bastionService, ISec
         CustomSshOptions = host.CustomSshOptions,
         SshHostKeyAlias = host.SshHostKeyAlias,
         ProxyJump = host.ProxyJump,
+        SudoPassword = host.SudoPassword,
         AzureBastion = host.AzureBastion is not { } bastion ? null : new AzureBastionConfig
         {
             BastionName = bastion.BastionName,
