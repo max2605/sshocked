@@ -1,5 +1,11 @@
 # Session recording and replay
 
+Settings → **Activity and recording** now combines event history, recording policy,
+playback, export and deletion. `ssk activity recordings ...` exposes the recording
+commands below; the existing `sessions`, `audit` and `history` aliases remain valid.
+Explicit command macro recording is a separate input mode within this module's
+managed command sessions; see [the feedback guide](USER_FEEDBACK.md).
+
 Session recording is disabled by default. Enable it with `ssk sessions enable`,
 disable the global default with `ssk sessions disable`, and inspect settings with
 `ssk sessions status`. A host's nullable `recordSession` setting overrides the global
