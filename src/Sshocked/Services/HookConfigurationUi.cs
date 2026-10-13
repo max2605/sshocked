@@ -1,28 +1,29 @@
 using System.Text.RegularExpressions;
 using Spectre.Console;
+using Sshocked.Interfaces;
 using Sshocked.Models;
 
 namespace Sshocked.Services;
 
 public static class HookConfigurationUi
 {
-    public static ConnectionHooks? Configure(ConnectionHooks? current)
+    public static ConnectionHooks? Configure(ConnectionHooks? current, IPathInputService paths)
     {
         var hooks = current ?? new ConnectionHooks();
-        ConfigurePhases(hooks);
+        ConfigurePhases(hooks, paths);
         return hooks.PreConnect is null && hooks.PostConnect is null && hooks.PreDisconnect is null && hooks.PostDisconnect is null
             ? null : hooks;
     }
 
-    public static GlobalHooks ConfigureGlobal(GlobalHooks current)
+    public static GlobalHooks ConfigureGlobal(GlobalHooks current, IPathInputService paths)
     {
-        ConfigurePhases(current);
+        ConfigurePhases(current, paths);
         current.IncludeTags = PromptTags("Include tags (empty applies to every host)", current.IncludeTags);
         current.ExcludeTags = PromptTags("Exclude tags (exclusions take precedence)", current.ExcludeTags);
         return current;
     }
 
-    private static void ConfigurePhases(ConnectionHooks hooks)
+    private static void ConfigurePhases(ConnectionHooks hooks, IPathInputService paths)
     {
         while (true)
         {
@@ -36,11 +37,11 @@ public static class HookConfigurationUi
             var action = AnsiConsole.Prompt(new SelectionPrompt<string>().Title($"[green]{HookDefinition.PhaseName(selectedPhase)}[/]")
                 .AddChoices("Configure", "Remove", "Cancel"));
             if (action == "Remove") Set(hooks, selectedPhase, null);
-            else if (action == "Configure") Set(hooks, selectedPhase, ConfigureScript(selectedPhase, current));
+            else if (action == "Configure") Set(hooks, selectedPhase, ConfigureScript(selectedPhase, current, paths));
         }
     }
 
-    private static HookScript ConfigureScript(HookPhase phase, HookScript? current)
+    private static HookScript? ConfigureScript(HookPhase phase, HookScript? current, IPathInputService paths)
     {
         var choices = new List<string> { "Local shell command", "Local script file", "Inline local script" };
         if (phase is HookPhase.PostConnect or HookPhase.PreDisconnect)
@@ -58,15 +59,16 @@ public static class HookConfigurationUi
                 break;
             case "Change remote directory":
                 hook.Mode = HookExecutionMode.RemoteCommand;
-                var path = PromptText("Remote directory", "~");
+                var path = paths.Prompt("Remote directory", "~");
+                if (path is null) return current;
                 hook.Command = "cd " + RemoteShell.QuotePath(path);
                 break;
             case "Local script file":
                 hook.Mode = HookExecutionMode.LocalScript;
-                hook.ScriptPath = AnsiConsole.Prompt(new TextPrompt<string>("[green]Script file[/]:")
-                    .DefaultValue(current?.ScriptPath ?? string.Empty)
-                    .Validate(path => File.Exists(Environment.ExpandEnvironmentVariables(path))
-                        ? ValidationResult.Success() : ValidationResult.Error("[red]The script file does not exist.[/]")));
+                hook.ScriptPath = paths.Prompt("Script file", current?.ScriptPath,
+                    validate: path => File.Exists(Environment.ExpandEnvironmentVariables(path))
+                        ? null : "The script file does not exist.");
+                if (hook.ScriptPath is null) return current;
                 break;
             case "Inline local script":
                 hook.Mode = HookExecutionMode.InlineScript;

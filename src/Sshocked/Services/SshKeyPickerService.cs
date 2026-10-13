@@ -3,7 +3,8 @@ using Sshocked.Interfaces;
 
 namespace Sshocked.Services;
 
-public sealed class SshKeyPickerService(ISshKeyDiscoveryService discovery, IConsoleWriterService console) : ISshKeyPickerService
+public sealed class SshKeyPickerService(ISshKeyDiscoveryService discovery, IConsoleWriterService console,
+    IPathInputService paths) : ISshKeyPickerService
 {
     public string? Pick(string? currentPath = null)
     {
@@ -18,9 +19,7 @@ public sealed class SshKeyPickerService(ISshKeyDiscoveryService discovery, ICons
         if (choice == SshKeyPickerLabels.UseDefaults) return null;
         if (choice == SshKeyPickerLabels.EnterManually)
         {
-            var path = AnsiConsole.Prompt(new TextPrompt<string>("[green]Identity file path[/] (empty = default):")
-                .DefaultValue(currentPath ?? string.Empty).AllowEmpty());
-            return string.IsNullOrWhiteSpace(path) ? null : path.Trim();
+            return paths.Prompt("Identity file path (empty uses OpenSSH defaults)", currentPath);
         }
         var selected = AnsiConsole.Prompt(new SelectionPrompt<Models.SshKeyInfo>().Title("Select an [green]SSH key[/]:")
             .PageSize(10).EnableSearch().UseConverter(key => Markup.Escape(
