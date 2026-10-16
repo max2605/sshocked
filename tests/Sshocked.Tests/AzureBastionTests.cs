@@ -65,6 +65,60 @@ public sealed class AzureBastionTests
         Assert.Contains("az extension add --name bastion", result.ErrorMessage);
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    public async Task PrerequisiteCertificateFailuresPreserveTheAzureDiagnosis(int failureStage, bool failureToStandardOutput)
+    {
+        const string diagnostic = "ERROR: [SSL: certificate_verify_failed] unable to get local issuer certificate";
+        var runner = new AzureBastionTestsFakeRunner();
+        var successes = PrerequisiteResults();
+        for (var stage = 0; stage < successes.Length; stage++)
+            runner.Results.Enqueue(stage == failureStage
+                ? new(1, failureToStandardOutput ? diagnostic : "", failureToStandardOutput ? "" : diagnostic)
+                : successes[stage]);
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+
+        var error = await Assert.ThrowsAsync<AzureCliCertificateException>(() => service.CheckPrerequisites());
+
+        AssertCertificateFailure(error, 1, diagnostic);
+        Assert.Equal(failureStage + 1, runner.Starts.Count);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task SuccessfulPrerequisitesIgnoreCertificateWarningText(int warningStage)
+    {
+        var runner = new AzureBastionTestsFakeRunner();
+        var successes = PrerequisiteResults();
+        for (var stage = 0; stage < successes.Length; stage++)
+            runner.Results.Enqueue(stage == warningStage
+                ? successes[stage] with { StandardError = "WARNING: previous request reported CERTIFICATE_VERIFY_FAILED" }
+                : successes[stage]);
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+
+        var result = await service.CheckPrerequisites();
+
+        Assert.True(result.IsInstalled);
+        Assert.True(result.HasBastionExtension);
+        Assert.True(result.IsLoggedIn);
+        Assert.Null(result.ErrorMessage);
+        Assert.Equal(3, runner.Starts.Count);
+    }
+
+    private static ProcessResult[] PrerequisiteResults() =>
+    [
+        new(0, "{\"azure-cli\":\"2.62.0\"}", ""),
+        new(0, "[{\"name\":\"bastion\"},{\"name\":\"ssh\"}]", ""),
+        new(0, "{}", "")
+    ];
+
     [Fact]
     public async Task NativeConnectionPropagatesExitWithoutRedirectingInteractiveConsole()
     {
@@ -204,6 +258,72 @@ public sealed class AzureBastionTests
         Assert.Equal(7, error.ExitCode);
         Assert.Contains("target not found", error.StandardError);
         AssertProcessExited(runner.StartedPid);
+    }
+
+    [Theory]
+    [InlineData("ERROR: [SSL: certificate_verify_failed] unable to get local issuer certificate", false)]
+    [InlineData("ERROR: [SSL: certificate_verify_failed] unable to get local issuer certificate", true)]
+    [InlineData("ERROR: Certificate Verify Failed: unable to get local issuer certificate", false)]
+    [InlineData("ERROR: Certificate Verify Failed: unable to get local issuer certificate", true)]
+    [InlineData("ERROR: Certificate Verification Failed. Add the trusted proxy CA.", false)]
+    [InlineData("ERROR: Certificate Verification Failed. Add the trusted proxy CA.", true)]
+    public async Task TunnelCertificateFailuresExplainRemediationAndCleanUp(string diagnostic, bool failureToStandardOutput)
+    {
+        var runner = new AzureBastionTestsTunnelRunner(fail: true, failureOutput: diagnostic, failureToStandardOutput: failureToStandardOutput);
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+
+        var error = await Assert.ThrowsAsync<AzureCliCertificateException>(() => service.CreateTunnel(BastionHost().AzureBastion!));
+
+        AssertCertificateFailure(error, 7, diagnostic);
+        AssertProcessExited(runner.StartedPid);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TunnelCertificateFailuresRemainRecognizableAfterDiagnosticCaptureIsFull(bool failureToStandardOutput)
+    {
+        const string diagnostic = "ERROR: [SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate";
+        var runner = new AzureBastionTestsTunnelRunner(fail: true, failureOutput: diagnostic, failureToStandardOutput: failureToStandardOutput, preludeLength: 20000);
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+
+        var error = await Assert.ThrowsAsync<AzureCliCertificateException>(() => service.CreateTunnel(BastionHost().AzureBastion!));
+
+        Assert.Equal(7, error.ExitCode);
+        Assert.Contains("REQUESTS_CA_BUNDLE", error.Message);
+        Assert.IsType<ProcessExecutionException>(error.InnerException);
+        AssertProcessExited(runner.StartedPid);
+    }
+
+    [Fact]
+    public async Task TunnelExitAfterReadinessPreservesTheCertificateDiagnosis()
+    {
+        const string diagnostic = "ERROR: [SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate";
+        var runner = new AzureBastionTestsTunnelRunner(fail: true, failureOutput: diagnostic, failAfterReady: true);
+        var service = new AzureBastionService(runner, NullLogger<AzureBastionService>.Instance);
+        await using var tunnel = await service.CreateTunnel(BastionHost().AzureBastion!);
+        Assert.True(tunnel.IsReady);
+        await runner.ReleaseFailure();
+
+        var error = await Assert.ThrowsAsync<AzureCliCertificateException>(() => tunnel.WaitUntilReady(TimeSpan.FromSeconds(10)));
+
+        AssertCertificateFailure(error, 7, diagnostic);
+        Assert.False(tunnel.IsReady);
+        AssertProcessExited(runner.StartedPid);
+    }
+
+    private static void AssertCertificateFailure(AzureCliCertificateException error, int exitCode, string diagnostic)
+    {
+        Assert.Equal(exitCode, error.ExitCode);
+        Assert.Contains("Azure CLI", error.Message);
+        Assert.Contains("REQUESTS_CA_BUNDLE", error.Message);
+        Assert.Contains("PowerShell:", error.Message);
+        Assert.Contains("Command Prompt:", error.Message);
+        Assert.Contains("https://learn.microsoft.com/", error.Message);
+        Assert.Contains(diagnostic, error.StandardError);
+        var processError = Assert.IsType<ProcessExecutionException>(error.InnerException);
+        Assert.Equal(exitCode, processError.ExitCode);
+        Assert.Equal(error.StandardError, processError.StandardError);
     }
 
     private static void AssertProcessExited(int pid)

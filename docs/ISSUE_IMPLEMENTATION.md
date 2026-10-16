@@ -44,6 +44,17 @@ Native sessions delegate to `az network bastion ssh`. Managed tunnels delegate t
 
 The Azure CLI native implementation currently disables inner SSH host-key checking and discards the inner SSH exit code. A zero native CLI exit therefore establishes only that Azure CLI returned zero. Use tunnel mode with key/password authentication when host-key verification or checked remote-command exit codes matter. Native remote commands/hooks are rejected on Windows because the upstream extension launches its inner command through a local shell. Native interactive connections remain available; Windows shell metacharacters in usernames/key paths are rejected. See the upstream [Bastion extension implementation](https://github.com/Azure/azure-cli-extensions/blob/main/src/bastion/azext_bastion/custom.py).
 
+Captured Azure CLI certificate verification failures, including `CERTIFICATE_VERIFY_FAILED` during tunnel startup or prerequisite checks, display an actionable setup error. Direct CLI connections exit with a nonzero status without an unhandled-exception stack trace; interactive connections return to the menu. Failed tunnels are disposed before reporting the error.
+
+For a corporate SSL/TLS inspection proxy, obtain the trusted root/intermediate CA certificates from your organization and include them in a PEM bundle alongside the public CAs. Set `REQUESTS_CA_BUNDLE` in the shell that launches Sshocked, then retry. Azure CLI inherits this environment variable:
+
+```powershell
+$env:REQUESTS_CA_BUNDLE = 'C:\certs\ca-bundle.pem'
+ssk private-vm
+```
+
+For Command Prompt, use `set "REQUESTS_CA_BUNDLE=C:\certs\ca-bundle.pem"` before launching Sshocked. See [Azure CLI proxy/certificate troubleshooting](https://learn.microsoft.com/en-us/cli/azure/use-azure-cli-successfully-troubleshooting#work-behind-a-proxy).
+
 ## Credentials
 
 Configure named Azure Key Vault providers in Settings and choose key/password/sudo secret references in the host form. Authentication uses Azure Identity's default credential chain. Secret values remain in memory, with a bounded optional TTL cache; setting TTL to zero disables caching. No secret value is serialized to configuration or appended as a process argument by the credential integration.

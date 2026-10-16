@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Text;
 using Spectre.Console;
 using Sshocked.Interfaces;
+using Sshocked.Models;
 using Sshocked.Services;
 
 namespace Sshocked;
@@ -55,6 +56,13 @@ internal sealed class Program
             var appRunner = serviceProvider.GetRequiredService<IAppRunner>();
             await appRunner.Run();
             logger.LogInformation("Application shutdown complete");
+        }
+        catch (AzureCliCertificateException ex)
+        {
+            var message = AuditRedactor.Redact(ex.Message);
+            logger.LogWarning("{Message}", message);
+            Console.Error.WriteLine($"Error: {message}");
+            Environment.ExitCode = args.FirstOrDefault()?.Equals("monitor", StringComparison.OrdinalIgnoreCase) == true ? 2 : 1;
         }
         catch (Exception ex)
         {

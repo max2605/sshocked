@@ -39,7 +39,10 @@ public sealed class MenuFactory(IKeyboardShortcutService keyboardShortcut, IUiCh
             try { await choice.ExecuteAsync(); }
             catch (Exception error)
             {
-                logger.LogError(error, "Menu action failed");
+                if (error is AzureCliCertificateException)
+                    logger.LogWarning("{Message}", AuditRedactor.Redact(error.Message));
+                else
+                    logger.LogError(error, "Menu action failed");
                 var palette = UiThemePalette.For(repository.Load().UI.Theme);
                 AnsiConsole.MarkupLine($"[{palette.Error}]Error: {Markup.Escape(AuditRedactor.Redact(error.Message) ?? "Action failed")}[/]");
                 if (AnsiConsole.Profile.Capabilities.Interactive) console.WaitForKey();

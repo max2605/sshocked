@@ -18,10 +18,12 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
         try
         {
             var versionResult = await runner.Run(AzureCliCommand.Create([VersionCommand, OutputOption, JsonOutput]), ct);
+            AzureCliErrors.ThrowIfCertificateFailure(versionResult, "Read Azure CLI version");
             if (versionResult.ExitCode != 0) return new(false, null, false, false, false, "Install Azure CLI: https://aka.ms/azure-cli");
             using var versions = JsonDocument.Parse(versionResult.StandardOutput);
             Version.TryParse(versions.RootElement.GetProperty(CliVersionProperty).GetString(), out var version);
             var extensionsResult = await runner.Run(AzureCliCommand.Create([Extension, List, OutputOption, JsonOutput]), ct);
+            AzureCliErrors.ThrowIfCertificateFailure(extensionsResult, "List Azure CLI extensions");
             var bastion = false;
             var ssh = false;
             if (extensionsResult.ExitCode == 0)
@@ -35,6 +37,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
                 }
             }
             var account = await runner.Run(AzureCliCommand.Create([Account, Show, OutputOption, JsonOutput]), ct);
+            AzureCliErrors.ThrowIfCertificateFailure(account, "Read Azure account");
             var error = version == null || version < new Version(2, 62, 0) ? "Upgrade Azure CLI to version 2.62.0 or later." :
                 !bastion ? "Install Bastion support: az extension add --name bastion" :
                 account.ExitCode != 0 ? "Sign in to Azure: az login" : null;
@@ -93,8 +96,10 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
     public async Task<IReadOnlyList<BastionVmInfo>> ListTargetVms(string bastionName, string resourceGroup, CancellationToken ct = default)
     {
         var check = await runner.Run(AzureCliCommand.Create([Network, Bastion, Show, NameOption, bastionName, ResourceGroupOption, resourceGroup, OutputOption, JsonOutput]), ct);
+        AzureCliErrors.ThrowIfCertificateFailure(check, "Inspect Azure Bastion");
         check.EnsureSuccess("Inspect Azure Bastion");
         var result = await runner.Run(AzureCliCommand.Create([Vm, List, ShowDetailsOption, OutputOption, JsonOutput]), ct);
+        AzureCliErrors.ThrowIfCertificateFailure(result, "List candidate Azure VMs");
         result.EnsureSuccess("List candidate Azure VMs");
         using var document = JsonDocument.Parse(result.StandardOutput);
         var vms = new List<BastionVmInfo>();
@@ -118,6 +123,7 @@ public sealed class AzureBastionService(IExternalProcessRunner runner, ILogger<A
             var args = new List<string> { Account, Show, QueryOption, TenantIdQuery, OutputOption, TsvOutput };
             if (!string.IsNullOrWhiteSpace(config.SubscriptionId)) args.AddRange([SubscriptionOption, config.SubscriptionId]);
             var account = await runner.Run(AzureCliCommand.Create(args), ct);
+            AzureCliErrors.ThrowIfCertificateFailure(account, "Read Azure tenant");
             account.EnsureSuccess("Read Azure tenant");
             if (!string.Equals(account.StandardOutput.Trim(), config.TenantId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Sign in to the configured tenant: az login --tenant {config.TenantId}");
